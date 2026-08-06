@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Grow Up — Fantasy Football</title>
+<style>
+  :root{
+    --bg:#0a0d14;
+    --surface:#131928;
+    --surface-2:#1b2338;
+    --surface-3:#232c46;
+    --border:#262f47;
+    --accent:#22c55e;
+    --accent-dim:#123d22;
+    --text:#f4f6fb;
+    --text-2:#a3aec6;
+    --text-3:#6c7690;
+    --win:#4fbf8f;
+    --loss:#e0574a;
+    --radius:14px;
+    --radius-sm:9px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);}
+  body{padding-bottom:calc(72px + env(safe-area-inset-bottom));min-height:100vh;}
+  a{color:inherit;text-decoration:none;}
+  button{font-family:inherit;}
+  ::-webkit-scrollbar{display:none;}
+  #app{max-width:560px;margin:0 auto;padding:0 16px;}
+
+  .topbar{
+    max-width:560px;margin:0 auto;padding:20px 16px 14px;
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .brand{display:flex;flex-direction:column;}
+  .brand .eyebrow{font-size:11px;letter-spacing:1.5px;color:var(--accent);font-weight:700;text-transform:uppercase;}
+  .brand .title{font-size:26px;font-weight:800;letter-spacing:-0.5px;margin-top:2px;}
+  .brand .sub{font-size:12px;color:var(--text-3);margin-top:2px;}
+
+  .section{margin-top:22px;}
+  .section-title{
+    font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+    color:var(--text-3);margin:0 0 10px 2px;display:flex;align-items:center;justify-content:space-between;
+  }
+
+  .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .stat-card{
+    background:var(--surface);border-radius:var(--radius-sm);padding:12px 8px;text-align:center;
+    border:1px solid var(--border);
+  }
+  .stat-card .num{font-size:20px;font-weight:800;color:var(--text);}
+  .stat-card .lbl{font-size:10px;color:var(--text-3);margin-top:2px;text-transform:uppercase;letter-spacing:0.5px;}
+
+  .card{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:14px 16px;
+  }
+
+  .champion-card{
+    background:linear-gradient(180deg,var(--surface-3),var(--surface));
+    border:1px solid var(--accent-dim);border-radius:var(--radius);padding:18px 16px;
+    display:flex;align-items:center;gap:14px;
+  }
+  .champion-card .ring{
+    width:52px;height:52px;border-radius:50%;background:var(--accent);color:#04140a;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;flex:none;
+  }
+  .champion-card .info .yr{font-size:11px;color:var(--accent);font-weight:700;letter-spacing:0.5px;}
+  .champion-card .info .name{font-size:19px;font-weight:800;margin-top:1px;}
+  .champion-card .info .meta{font-size:12px;color:var(--text-2);margin-top:2px;}
+
+  .rank-list{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--surface);}
+  .rank-row{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);}
+  .rank-row:last-child{border-bottom:none;}
+  .rank-row .pos{
+    width:22px;height:22px;border-radius:50%;background:var(--surface-3);color:var(--text-2);
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none;
+  }
+  .rank-row.gold .pos{background:var(--accent);color:#04140a;}
+  .rank-row .rname{flex:1;font-size:14px;font-weight:600;}
+  .rank-row .rval{font-size:14px;font-weight:800;color:var(--accent);}
+  .rank-row .rsub{font-size:11px;color:var(--text-3);}
+
+  .pillrow{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;scroll-snap-type:x proximity;}
+  .pill{
+    flex:none;padding:8px 16px;border-radius:999px;background:var(--surface);border:1px solid var(--border);
+    font-size:13px;font-weight:700;color:var(--text-2);scroll-snap-align:start;
+  }
+  .pill.active{background:var(--accent);color:#04140a;border-color:var(--accent);}
+
+  .mgr-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .mgr-chip{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:10px 6px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;
+  }
+  .mgr-chip .av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#0a0d14;}
+  .mgr-chip .nm{font-size:12px;font-weight:700;}
+  .mgr-chip.active{border-color:var(--accent);}
+
+  .podium{display:flex;gap:8px;align-items:flex-end;margin-bottom:14px;}
+  .podium .slot{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 6px;text-align:center;}
+  .podium .slot.first{background:linear-gradient(180deg,var(--surface-3),var(--surface));border-color:var(--accent-dim);padding-top:16px;}
+  .podium .medal{font-size:11px;font-weight:800;color:var(--text-3);}
+  .podium .slot.first .medal{color:var(--accent);}
+  .podium .pname{font-size:13px;font-weight:800;margin-top:4px;}
+
+  .badge-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .badge{
+    flex:1;min-width:100px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:10px 12px;
+  }
+  .badge .blbl{font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;}
+  .badge .bval{font-size:14px;font-weight:800;margin-top:3px;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .table-wrap{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--surface);}
+  .table-scroll{overflow-x:auto;}
+  th{
+    text-align:left;padding:9px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;
+    color:var(--text-3);background:var(--surface-2);white-space:nowrap;font-weight:700;
+  }
+  td{padding:9px 8px;border-top:1px solid var(--border);white-space:nowrap;font-weight:600;}
+  tr.me td{background:rgba(245,165,36,0.06);}
+  .num-cell{color:var(--text-2);font-weight:500;}
+  .win-txt{color:var(--win);}
+  .loss-txt{color:var(--loss);}
+  .tag{display:inline-block;font-size:9.5px;font-weight:800;padding:2px 6px;border-radius:5px;margin-left:4px;}
+  .tag.gold{background:var(--accent-dim);color:var(--accent);}
+
+  .record-card{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);}
+  .record-card:last-child{border-bottom:none;}
+  .record-card .rc-l .rc-t{font-size:12px;color:var(--text-2);}
+  .record-card .rc-l .rc-n{font-size:14px;font-weight:800;margin-top:2px;}
+  .record-card .rc-r{font-size:16px;font-weight:800;color:var(--accent);text-align:right;}
+  .record-card .rc-r .rc-s{display:block;font-size:10px;color:var(--text-3);font-weight:600;}
+
+  .manager-header{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+  .manager-header .av-lg{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#0a0d14;flex:none;}
+  .manager-header .mh-name{font-size:22px;font-weight:800;}
+  .manager-header .mh-sub{font-size:12px;color:var(--text-3);margin-top:2px;}
+
+  .empty{padding:40px 10px;text-align:center;color:var(--text-3);font-size:13px;}
+
+  nav.bottomnav{
+    position:fixed;left:0;right:0;bottom:0;background:rgba(10,13,20,0.92);backdrop-filter:blur(10px);
+    border-top:1px solid var(--border);display:flex;padding:8px 12px calc(8px + env(safe-area-inset-bottom));
+    max-width:560px;margin:0 auto;
+  }
+  nav.bottomnav .nitem{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;color:var(--text-3);
+    font-size:10.5px;font-weight:700;border:none;background:none;
+  }
+  nav.bottomnav .nitem.active{color:var(--accent);}
+  nav.bottomnav svg{width:22px;height:22px;}
+  @media (min-width:560px){
+    nav.bottomnav{border-radius:16px 16px 0 0;bottom:0;}
+  }
+  h2.page-title{font-size:20px;font-weight:800;margin:4px 0 16px;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<nav class="bottomnav" id="bottomnav">
+  <button class="nitem" data-go="home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+    Home
+  </button>
+  <button class="nitem" data-go="seasons">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
+    Seasons
+  </button>
+  <button class="nitem" data-go="managers">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+    Managers
+  </button>
+</nav>
+<script>
+const DATA = {"leagueName":"Grow Up","years":[2018,2019,2020,2021,2022,2023,2024,2025],"managers":{"Robert":{"seasons":7,"champs":2,"scoringTitles":0,"regSznTitles":1,"lastPlaces":0,"winPct":57.29,"avgFinish":4.57,"avgPF":1424.49,"avgPA":1444.95,"wins":55,"losses":41,"playoffs":6,"avgDraftPos":5.43,"years":[{"year":2019,"wins":11,"losses":2,"standing":1,"playoffs":true,"pf":1505,"pa":1239.12,"draftPos":12,"scoringChamp":false,"regSznChamp":true,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":7,"losses":6,"standing":1,"playoffs":true,"pf":1416.34,"pa":1383.22,"draftPos":9,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":4,"losses":10,"standing":11,"playoffs":false,"pf":1261.28,"pa":1688.54,"draftPos":1,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":9,"losses":5,"standing":5,"playoffs":true,"pf":1363.04,"pa":1374.02,"draftPos":3,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":7,"losses":7,"standing":6,"playoffs":true,"pf":1427.76,"pa":1422.32,"draftPos":8,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":9,"losses":5,"standing":3,"playoffs":true,"pf":1490.38,"pa":1449.26,"draftPos":3,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":8,"losses":6,"standing":5,"playoffs":true,"pf":1507.62,"pa":1558.16,"draftPos":2,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#e0574a","name":"Robert"},"Daniel":{"seasons":8,"champs":2,"scoringTitles":0,"regSznTitles":0,"lastPlaces":0,"winPct":49.54,"avgFinish":6.63,"avgPF":1404.88,"avgPA":1430.6,"wins":54,"losses":55,"playoffs":4,"avgDraftPos":7.5,"years":[{"year":2018,"wins":6,"losses":7,"standing":1,"playoffs":true,"pf":1276.36,"pa":1448.66,"draftPos":11,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2019,"wins":3,"losses":10,"standing":11,"playoffs":false,"pf":1234.68,"pa":1422.9,"draftPos":6,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":6,"losses":7,"standing":11,"playoffs":false,"pf":1316.42,"pa":1392.94,"draftPos":3,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":10,"losses":4,"standing":1,"playoffs":true,"pf":1436.08,"pa":1269.66,"draftPos":10,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":8,"losses":6,"standing":6,"playoffs":true,"pf":1510.84,"pa":1438.4,"draftPos":11,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":5,"losses":9,"standing":10,"playoffs":false,"pf":1382.58,"pa":1572.72,"draftPos":11,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":9,"losses":5,"standing":6,"playoffs":true,"pf":1571.38,"pa":1340.48,"draftPos":5,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":7,"losses":7,"standing":7,"playoffs":false,"pf":1510.66,"pa":1559.02,"draftPos":3,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#3fa9dc","name":"Daniel"},"Mitch":{"seasons":7,"champs":1,"scoringTitles":1,"regSznTitles":0,"lastPlaces":1,"winPct":50.53,"avgFinish":5.71,"avgPF":1458.89,"avgPA":1385.66,"wins":48,"losses":47,"playoffs":5,"avgDraftPos":6.43,"years":[{"year":2018,"wins":7,"losses":6,"standing":8,"playoffs":true,"pf":1558.5,"pa":1357.74,"draftPos":1,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2019,"wins":8,"losses":5,"standing":3,"playoffs":true,"pf":1348.9,"pa":1159.74,"draftPos":11,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":3,"losses":10,"standing":12,"playoffs":false,"pf":1216.02,"pa":1483.44,"draftPos":7,"scoringChamp":false,"regSznChamp":false,"lastPlace":true,"coManagedWith":null},{"year":2022,"wins":9,"losses":5,"standing":1,"playoffs":true,"pf":1738.46,"pa":1379.76,"draftPos":4,"scoringChamp":true,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":9,"losses":5,"standing":3,"playoffs":true,"pf":1435.74,"pa":1295.26,"draftPos":3,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":3,"losses":11,"standing":11,"playoffs":false,"pf":1448.72,"pa":1663.18,"draftPos":8,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":9,"losses":5,"standing":2,"playoffs":true,"pf":1465.86,"pa":1360.52,"draftPos":11,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#4fbf8f","name":"Mitch"},"Rodrigo":{"seasons":8,"champs":1,"scoringTitles":0,"regSznTitles":1,"lastPlaces":1,"winPct":52.29,"avgFinish":5.75,"avgPF":1456.48,"avgPA":1459.61,"wins":57,"losses":52,"playoffs":4,"avgDraftPos":8.63,"years":[{"year":2018,"wins":7,"losses":6,"standing":4,"playoffs":true,"pf":1481.38,"pa":1379.2,"draftPos":4,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2019,"wins":6,"losses":7,"standing":8,"playoffs":false,"pf":1268.76,"pa":1330.48,"draftPos":7,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":7,"losses":6,"standing":4,"playoffs":true,"pf":1414.34,"pa":1359.12,"draftPos":12,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":8,"losses":6,"standing":2,"playoffs":true,"pf":1594.72,"pa":1499.9,"draftPos":7,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":7,"losses":7,"standing":7,"playoffs":false,"pf":1457.4,"pa":1543.96,"draftPos":5,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":12,"losses":2,"standing":1,"playoffs":true,"pf":1567.12,"pa":1412.98,"draftPos":12,"scoringChamp":false,"regSznChamp":true,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":3,"losses":11,"standing":12,"playoffs":false,"pf":1378.22,"pa":1652.64,"draftPos":10,"scoringChamp":false,"regSznChamp":false,"lastPlace":true,"coManagedWith":null},{"year":2025,"wins":7,"losses":7,"standing":8,"playoffs":false,"pf":1489.92,"pa":1498.62,"draftPos":12,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Alvaro"}],"color":"#c77dff","name":"Rodrigo"},"Alvaro":{"seasons":1,"champs":0,"scoringTitles":0,"regSznTitles":0,"lastPlaces":0,"winPct":50.0,"avgFinish":8.0,"avgPF":1489.92,"avgPA":1498.62,"wins":7,"losses":7,"playoffs":0,"avgDraftPos":12.0,"years":[{"year":2025,"wins":7,"losses":7,"standing":8,"playoffs":false,"pf":1489.92,"pa":1498.62,"draftPos":12,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Rodrigo"}],"color":"#e0a458","name":"Alvaro"},"John":{"seasons":7,"champs":1,"scoringTitles":0,"regSznTitles":1,"lastPlaces":2,"winPct":44.79,"avgFinish":7.0,"avgPF":1408.11,"avgPA":1438.63,"wins":43,"losses":53,"playoffs":2,"avgDraftPos":4.86,"years":[{"year":2019,"wins":6,"losses":7,"standing":7,"playoffs":false,"pf":1294.9,"pa":1347.96,"draftPos":1,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":7,"losses":6,"standing":5,"playoffs":false,"pf":1402.18,"pa":1374.68,"draftPos":4,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":3,"losses":11,"standing":12,"playoffs":false,"pf":1241.3,"pa":1472.62,"draftPos":2,"scoringChamp":false,"regSznChamp":false,"lastPlace":true,"coManagedWith":null},{"year":2022,"wins":4,"losses":10,"standing":12,"playoffs":false,"pf":1257.56,"pa":1431.54,"draftPos":12,"scoringChamp":false,"regSznChamp":false,"lastPlace":true,"coManagedWith":null},{"year":2023,"wins":5,"losses":9,"standing":9,"playoffs":false,"pf":1466.66,"pa":1629.64,"draftPos":1,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":10,"losses":4,"standing":1,"playoffs":true,"pf":1669.06,"pa":1372.88,"draftPos":4,"scoringChamp":false,"regSznChamp":true,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":8,"losses":6,"standing":3,"playoffs":true,"pf":1525.08,"pa":1441.12,"draftPos":10,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#5cc9c9","name":"John"},"Eddy":{"seasons":8,"champs":0,"scoringTitles":2,"regSznTitles":2,"lastPlaces":0,"winPct":51.38,"avgFinish":6.38,"avgPF":1455.47,"avgPA":1440.07,"wins":56,"losses":53,"playoffs":4,"avgDraftPos":7.0,"years":[{"year":2018,"wins":5,"losses":8,"standing":9,"playoffs":false,"pf":1335.92,"pa":1447.2,"draftPos":10,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2019,"wins":5,"losses":8,"standing":9,"playoffs":false,"pf":1337.76,"pa":1350.4,"draftPos":4,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":9,"losses":4,"standing":2,"playoffs":true,"pf":1473.46,"pa":1352.32,"draftPos":6,"scoringChamp":true,"regSznChamp":true,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":7,"losses":7,"standing":3,"playoffs":true,"pf":1619.5,"pa":1514.96,"draftPos":11,"scoringChamp":true,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":10,"losses":4,"standing":2,"playoffs":true,"pf":1594.38,"pa":1331.5,"draftPos":7,"scoringChamp":false,"regSznChamp":true,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":9,"losses":5,"standing":5,"playoffs":true,"pf":1531.38,"pa":1453.58,"draftPos":7,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":6,"losses":8,"standing":10,"playoffs":false,"pf":1309.46,"pa":1515.02,"draftPos":2,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":5,"losses":9,"standing":11,"playoffs":false,"pf":1441.92,"pa":1555.54,"draftPos":9,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#f0578a","name":"Eddy"},"Gabe":{"seasons":8,"champs":0,"scoringTitles":2,"regSznTitles":1,"lastPlaces":0,"winPct":57.8,"avgFinish":5.75,"avgPF":1511.9,"avgPA":1424.09,"wins":63,"losses":46,"playoffs":4,"avgDraftPos":5.13,"years":[{"year":2018,"wins":8,"losses":5,"standing":5,"playoffs":true,"pf":1558.86,"pa":1368.98,"draftPos":2,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2019,"wins":6,"losses":7,"standing":6,"playoffs":false,"pf":1505.16,"pa":1470.2,"draftPos":2,"scoringChamp":true,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":6,"losses":7,"standing":9,"playoffs":false,"pf":1356.44,"pa":1478.54,"draftPos":2,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":12,"losses":2,"standing":4,"playoffs":true,"pf":1583.4,"pa":1387.28,"draftPos":8,"scoringChamp":false,"regSznChamp":true,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":7,"losses":7,"standing":8,"playoffs":false,"pf":1342.74,"pa":1408.52,"draftPos":10,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":9,"losses":5,"standing":2,"playoffs":true,"pf":1553.9,"pa":1358.44,"draftPos":4,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":10,"losses":4,"standing":2,"playoffs":true,"pf":1694.22,"pa":1419.98,"draftPos":6,"scoringChamp":true,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":5,"losses":9,"standing":10,"playoffs":false,"pf":1500.48,"pa":1500.8,"draftPos":7,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#8fd14f","name":"Gabe"},"Ferris":{"seasons":8,"champs":0,"scoringTitles":1,"regSznTitles":1,"lastPlaces":0,"winPct":52.29,"avgFinish":7.25,"avgPF":1426.24,"avgPA":1404.25,"wins":57,"losses":52,"playoffs":3,"avgDraftPos":5.38,"years":[{"year":2018,"wins":11,"losses":2,"standing":7,"playoffs":true,"pf":1566.78,"pa":1440.84,"draftPos":8,"scoringChamp":true,"regSznChamp":true,"lastPlace":false,"coManagedWith":null},{"year":2019,"wins":10,"losses":3,"standing":4,"playoffs":true,"pf":1460.52,"pa":1229.78,"draftPos":5,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":7,"losses":6,"standing":6,"playoffs":false,"pf":1372.68,"pa":1341.98,"draftPos":1,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":5,"losses":9,"standing":10,"playoffs":false,"pf":1426.86,"pa":1423.34,"draftPos":12,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":7,"losses":7,"standing":3,"playoffs":true,"pf":1515.48,"pa":1429.02,"draftPos":2,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":4,"losses":10,"standing":11,"playoffs":false,"pf":1335.16,"pa":1424.66,"draftPos":9,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":6,"losses":8,"standing":8,"playoffs":false,"pf":1416.26,"pa":1507,"draftPos":1,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":7,"losses":7,"standing":9,"playoffs":false,"pf":1316.14,"pa":1437.38,"draftPos":5,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#f5a524","name":"Ferris"},"Tucker":{"seasons":8,"champs":0,"scoringTitles":2,"regSznTitles":1,"lastPlaces":0,"winPct":54.13,"avgFinish":5.13,"avgPF":1522.74,"avgPA":1447.36,"wins":59,"losses":50,"playoffs":5,"avgDraftPos":6.13,"years":[{"year":2018,"wins":7,"losses":6,"standing":3,"playoffs":true,"pf":1494.96,"pa":1438.62,"draftPos":6,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2019,"wins":8,"losses":5,"standing":2,"playoffs":true,"pf":1415.5,"pa":1431.42,"draftPos":8,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":6,"losses":7,"standing":7,"playoffs":false,"pf":1416.86,"pa":1280.6,"draftPos":11,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":8,"losses":6,"standing":5,"playoffs":true,"pf":1551.42,"pa":1375.64,"draftPos":3,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":5,"losses":9,"standing":9,"playoffs":false,"pf":1396.12,"pa":1529.7,"draftPos":1,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":9,"losses":5,"standing":4,"playoffs":true,"pf":1598.5,"pa":1453.26,"draftPos":5,"scoringChamp":true,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":6,"losses":8,"standing":7,"playoffs":false,"pf":1511.64,"pa":1531.54,"draftPos":7,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":10,"losses":4,"standing":4,"playoffs":true,"pf":1796.9,"pa":1538.06,"draftPos":8,"scoringChamp":true,"regSznChamp":true,"lastPlace":false,"coManagedWith":null}],"color":"#e05a94","name":"Tucker"},"Kennet":{"seasons":8,"champs":0,"scoringTitles":0,"regSznTitles":0,"lastPlaces":0,"winPct":44.04,"avgFinish":8.38,"avgPF":1361.14,"avgPA":1413.65,"wins":48,"losses":61,"playoffs":1,"avgDraftPos":7.25,"years":[{"year":2018,"wins":5,"losses":8,"standing":10,"playoffs":false,"pf":1255.68,"pa":1367.78,"draftPos":9,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2019,"wins":8,"losses":5,"standing":5,"playoffs":false,"pf":1293.96,"pa":1227.34,"draftPos":9,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":6,"losses":7,"standing":8,"playoffs":false,"pf":1400.78,"pa":1418.12,"draftPos":5,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":9,"losses":5,"standing":6,"playoffs":true,"pf":1377.18,"pa":1338.04,"draftPos":6,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":5,"losses":9,"standing":10,"playoffs":false,"pf":1272.82,"pa":1416.82,"draftPos":6,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":6,"losses":8,"standing":7,"playoffs":false,"pf":1537.84,"pa":1533.72,"draftPos":6,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2024,"wins":6,"losses":8,"standing":9,"playoffs":false,"pf":1407.08,"pa":1502.8,"draftPos":11,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":3,"losses":11,"standing":12,"playoffs":false,"pf":1343.74,"pa":1504.58,"draftPos":6,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Juan"}],"color":"#9d7fe8","name":"Kennet"},"Juan":{"seasons":1,"champs":0,"scoringTitles":0,"regSznTitles":0,"lastPlaces":1,"winPct":21.43,"avgFinish":12.0,"avgPF":1343.74,"avgPA":1504.58,"wins":3,"losses":11,"playoffs":0,"avgDraftPos":6.0,"years":[{"year":2025,"wins":3,"losses":11,"standing":12,"playoffs":false,"pf":1343.74,"pa":1504.58,"draftPos":6,"scoringChamp":false,"regSznChamp":false,"lastPlace":true,"coManagedWith":"Kennet"}],"color":"#8a97a8","name":"Juan"},"Julio":{"seasons":5,"champs":1,"scoringTitles":0,"regSznTitles":0,"lastPlaces":0,"winPct":48.57,"avgFinish":6.8,"avgPF":1413.23,"avgPA":1494.34,"wins":34,"losses":36,"playoffs":2,"avgDraftPos":5.8,"years":[{"year":2021,"wins":6,"losses":8,"standing":9,"playoffs":false,"pf":1391.54,"pa":1430.1,"draftPos":5,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":5,"losses":9,"standing":11,"playoffs":false,"pf":1243.1,"pa":1470.98,"draftPos":9,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Oliver"},{"year":2023,"wins":6,"losses":8,"standing":8,"playoffs":false,"pf":1335.1,"pa":1456.86,"draftPos":2,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Oliver"},{"year":2024,"wins":9,"losses":5,"standing":5,"playoffs":true,"pf":1594.88,"pa":1597.88,"draftPos":12,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Oliver"},{"year":2025,"wins":8,"losses":6,"standing":1,"playoffs":true,"pf":1501.52,"pa":1515.86,"draftPos":1,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Oliver"}],"color":"#7b8ff0","name":"Julio"},"Oliver":{"seasons":7,"champs":1,"scoringTitles":0,"regSznTitles":0,"lastPlaces":1,"winPct":46.88,"avgFinish":6.86,"avgPF":1380.16,"avgPA":1479.06,"wins":45,"losses":51,"playoffs":3,"avgDraftPos":6.57,"years":[{"year":2019,"wins":3,"losses":10,"standing":12,"playoffs":false,"pf":1199.2,"pa":1492.42,"draftPos":3,"scoringChamp":false,"regSznChamp":false,"lastPlace":true,"coManagedWith":null},{"year":2020,"wins":8,"losses":5,"standing":3,"playoffs":true,"pf":1332.74,"pa":1250.68,"draftPos":10,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":6,"losses":8,"standing":8,"playoffs":false,"pf":1454.58,"pa":1568.74,"draftPos":9,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":5,"losses":9,"standing":11,"playoffs":false,"pf":1243.1,"pa":1470.98,"draftPos":9,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Julio"},{"year":2023,"wins":6,"losses":8,"standing":8,"playoffs":false,"pf":1335.1,"pa":1456.86,"draftPos":2,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Julio"},{"year":2024,"wins":9,"losses":5,"standing":5,"playoffs":true,"pf":1594.88,"pa":1597.88,"draftPos":12,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Julio"},{"year":2025,"wins":8,"losses":6,"standing":1,"playoffs":true,"pf":1501.52,"pa":1515.86,"draftPos":1,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":"Julio"}],"color":"#4fd18f","name":"Oliver"},"Lucas":{"seasons":8,"champs":0,"scoringTitles":0,"regSznTitles":0,"lastPlaces":1,"winPct":44.04,"avgFinish":6.88,"avgPF":1441.04,"avgPA":1450.8,"wins":48,"losses":61,"playoffs":4,"avgDraftPos":7.5,"years":[{"year":2018,"wins":7,"losses":6,"standing":2,"playoffs":true,"pf":1453.92,"pa":1432.94,"draftPos":7,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2019,"wins":4,"losses":9,"standing":10,"playoffs":false,"pf":1209.42,"pa":1372,"draftPos":10,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2020,"wins":6,"losses":7,"standing":10,"playoffs":false,"pf":1354.3,"pa":1356.92,"draftPos":8,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2021,"wins":6,"losses":8,"standing":7,"playoffs":false,"pf":1535.24,"pa":1504.28,"draftPos":4,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2022,"wins":8,"losses":6,"standing":4,"playoffs":true,"pf":1534.1,"pa":1471.82,"draftPos":8,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2023,"wins":3,"losses":11,"standing":12,"playoffs":false,"pf":1365.02,"pa":1523.32,"draftPos":10,"scoringChamp":false,"regSznChamp":false,"lastPlace":true,"coManagedWith":null},{"year":2024,"wins":7,"losses":7,"standing":4,"playoffs":true,"pf":1492.04,"pa":1430.68,"draftPos":9,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null},{"year":2025,"wins":7,"losses":7,"standing":6,"playoffs":true,"pf":1584.24,"pa":1514.4,"draftPos":4,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#4fa8f0","name":"Lucas"},"Jake":{"seasons":1,"champs":0,"scoringTitles":0,"regSznTitles":0,"lastPlaces":0,"winPct":53.85,"avgFinish":6.0,"avgPF":1507.68,"avgPA":1321.02,"wins":7,"losses":6,"playoffs":1,"avgDraftPos":12.0,"years":[{"year":2018,"wins":7,"losses":6,"standing":6,"playoffs":true,"pf":1507.68,"pa":1321.02,"draftPos":12,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#d1a34f","name":"Jake"},"Nick":{"seasons":1,"champs":0,"scoringTitles":0,"regSznTitles":0,"lastPlaces":0,"winPct":30.77,"avgFinish":11.0,"avgPF":1355.4,"avgPA":1523.84,"wins":4,"losses":9,"playoffs":0,"avgDraftPos":3.0,"years":[{"year":2018,"wins":4,"losses":9,"standing":11,"playoffs":false,"pf":1355.4,"pa":1523.84,"draftPos":3,"scoringChamp":false,"regSznChamp":false,"lastPlace":false,"coManagedWith":null}],"color":"#c9c94f","name":"Nick"},"Miguel":{"seasons":1,"champs":0,"scoringTitles":0,"regSznTitles":0,"lastPlaces":1,"winPct":30.77,"avgFinish":12.0,"avgPF":1176.74,"avgPA":1495.36,"wins":4,"losses":9,"playoffs":0,"avgDraftPos":5.0,"years":[{"year":2018,"wins":4,"losses":9,"standing":12,"playoffs":false,"pf":1176.74,"pa":1495.36,"draftPos":5,"scoringChamp":false,"regSznChamp":false,"lastPlace":true,"coManagedWith":null}],"color":"#e08a4f","name":"Miguel"}},"seasons":{"2018":{"year":2018,"platform":"Sleeper","playoffTeams":8,"totalTeams":12,"champion":["Daniel"],"runnerUp":["Lucas"],"third":["Tucker"],"scoringChamp":"Ferris","regSznChamp":"Ferris","lastPlace":"Miguel","standings":[{"managers":["Daniel"],"standing":1,"wins":6,"losses":7,"pf":1276.36,"pa":1448.66,"draftPos":11},{"managers":["Lucas"],"standing":2,"wins":7,"losses":6,"pf":1453.92,"pa":1432.94,"draftPos":7},{"managers":["Tucker"],"standing":3,"wins":7,"losses":6,"pf":1494.96,"pa":1438.62,"draftPos":6},{"managers":["Rodrigo"],"standing":4,"wins":7,"losses":6,"pf":1481.38,"pa":1379.2,"draftPos":4},{"managers":["Gabe"],"standing":5,"wins":8,"losses":5,"pf":1558.86,"pa":1368.98,"draftPos":2},{"managers":["Jake"],"standing":6,"wins":7,"losses":6,"pf":1507.68,"pa":1321.02,"draftPos":12},{"managers":["Ferris"],"standing":7,"wins":11,"losses":2,"pf":1566.78,"pa":1440.84,"draftPos":8},{"managers":["Mitch"],"standing":8,"wins":7,"losses":6,"pf":1558.5,"pa":1357.74,"draftPos":1},{"managers":["Eddy"],"standing":9,"wins":5,"losses":8,"pf":1335.92,"pa":1447.2,"draftPos":10},{"managers":["Kennet"],"standing":10,"wins":5,"losses":8,"pf":1255.68,"pa":1367.78,"draftPos":9},{"managers":["Nick"],"standing":11,"wins":4,"losses":9,"pf":1355.4,"pa":1523.84,"draftPos":3},{"managers":["Miguel"],"standing":12,"wins":4,"losses":9,"pf":1176.74,"pa":1495.36,"draftPos":5}]},"2019":{"year":2019,"platform":"ESPN","playoffTeams":4,"totalTeams":12,"champion":["Robert"],"runnerUp":["Tucker"],"third":["Mitch"],"scoringChamp":"Gabe","regSznChamp":"Robert","lastPlace":"Oliver","standings":[{"managers":["Robert"],"standing":1,"wins":11,"losses":2,"pf":1505,"pa":1239.12,"draftPos":12},{"managers":["Tucker"],"standing":2,"wins":8,"losses":5,"pf":1415.5,"pa":1431.42,"draftPos":8},{"managers":["Mitch"],"standing":3,"wins":8,"losses":5,"pf":1348.9,"pa":1159.74,"draftPos":11},{"managers":["Ferris"],"standing":4,"wins":10,"losses":3,"pf":1460.52,"pa":1229.78,"draftPos":5},{"managers":["Kennet"],"standing":5,"wins":8,"losses":5,"pf":1293.96,"pa":1227.34,"draftPos":9},{"managers":["Gabe"],"standing":6,"wins":6,"losses":7,"pf":1505.16,"pa":1470.2,"draftPos":2},{"managers":["John"],"standing":7,"wins":6,"losses":7,"pf":1294.9,"pa":1347.96,"draftPos":1},{"managers":["Rodrigo"],"standing":8,"wins":6,"losses":7,"pf":1268.76,"pa":1330.48,"draftPos":7},{"managers":["Eddy"],"standing":9,"wins":5,"losses":8,"pf":1337.76,"pa":1350.4,"draftPos":4},{"managers":["Lucas"],"standing":10,"wins":4,"losses":9,"pf":1209.42,"pa":1372,"draftPos":10},{"managers":["Daniel"],"standing":11,"wins":3,"losses":10,"pf":1234.68,"pa":1422.9,"draftPos":6},{"managers":["Oliver"],"standing":12,"wins":3,"losses":10,"pf":1199.2,"pa":1492.42,"draftPos":3}]},"2020":{"year":2020,"platform":"ESPN","playoffTeams":4,"totalTeams":12,"champion":["Robert"],"runnerUp":["Eddy"],"third":["Oliver"],"scoringChamp":"Eddy","regSznChamp":"Eddy","lastPlace":"Mitch","standings":[{"managers":["Robert"],"standing":1,"wins":7,"losses":6,"pf":1416.34,"pa":1383.22,"draftPos":9},{"managers":["Eddy"],"standing":2,"wins":9,"losses":4,"pf":1473.46,"pa":1352.32,"draftPos":6},{"managers":["Oliver"],"standing":3,"wins":8,"losses":5,"pf":1332.74,"pa":1250.68,"draftPos":10},{"managers":["Rodrigo"],"standing":4,"wins":7,"losses":6,"pf":1414.34,"pa":1359.12,"draftPos":12},{"managers":["John"],"standing":5,"wins":7,"losses":6,"pf":1402.18,"pa":1374.68,"draftPos":4},{"managers":["Ferris"],"standing":6,"wins":7,"losses":6,"pf":1372.68,"pa":1341.98,"draftPos":1},{"managers":["Tucker"],"standing":7,"wins":6,"losses":7,"pf":1416.86,"pa":1280.6,"draftPos":11},{"managers":["Kennet"],"standing":8,"wins":6,"losses":7,"pf":1400.78,"pa":1418.12,"draftPos":5},{"managers":["Gabe"],"standing":9,"wins":6,"losses":7,"pf":1356.44,"pa":1478.54,"draftPos":2},{"managers":["Lucas"],"standing":10,"wins":6,"losses":7,"pf":1354.3,"pa":1356.92,"draftPos":8},{"managers":["Daniel"],"standing":11,"wins":6,"losses":7,"pf":1316.42,"pa":1392.94,"draftPos":3},{"managers":["Mitch"],"standing":12,"wins":3,"losses":10,"pf":1216.02,"pa":1483.44,"draftPos":7}]},"2021":{"year":2021,"platform":"ESPN","playoffTeams":6,"totalTeams":12,"champion":["Daniel"],"runnerUp":["Rodrigo"],"third":["Eddy"],"scoringChamp":"Eddy","regSznChamp":"Gabe","lastPlace":"John","standings":[{"managers":["Daniel"],"standing":1,"wins":10,"losses":4,"pf":1436.08,"pa":1269.66,"draftPos":10},{"managers":["Rodrigo"],"standing":2,"wins":8,"losses":6,"pf":1594.72,"pa":1499.9,"draftPos":7},{"managers":["Eddy"],"standing":3,"wins":7,"losses":7,"pf":1619.5,"pa":1514.96,"draftPos":11},{"managers":["Gabe"],"standing":4,"wins":12,"losses":2,"pf":1583.4,"pa":1387.28,"draftPos":8},{"managers":["Tucker"],"standing":5,"wins":8,"losses":6,"pf":1551.42,"pa":1375.64,"draftPos":3},{"managers":["Kennet"],"standing":6,"wins":9,"losses":5,"pf":1377.18,"pa":1338.04,"draftPos":6},{"managers":["Lucas"],"standing":7,"wins":6,"losses":8,"pf":1535.24,"pa":1504.28,"draftPos":4},{"managers":["Oliver"],"standing":8,"wins":6,"losses":8,"pf":1454.58,"pa":1568.74,"draftPos":9},{"managers":["Julio"],"standing":9,"wins":6,"losses":8,"pf":1391.54,"pa":1430.1,"draftPos":5},{"managers":["Ferris"],"standing":10,"wins":5,"losses":9,"pf":1426.86,"pa":1423.34,"draftPos":12},{"managers":["Robert"],"standing":11,"wins":4,"losses":10,"pf":1261.28,"pa":1688.54,"draftPos":1},{"managers":["John"],"standing":12,"wins":3,"losses":11,"pf":1241.3,"pa":1472.62,"draftPos":2}]},"2022":{"year":2022,"platform":"Sleeper","playoffTeams":6,"totalTeams":12,"champion":["Mitch"],"runnerUp":["Eddy"],"third":["Ferris"],"scoringChamp":"Mitch","regSznChamp":"Eddy","lastPlace":"John","standings":[{"managers":["Mitch"],"standing":1,"wins":9,"losses":5,"pf":1738.46,"pa":1379.76,"draftPos":4},{"managers":["Eddy"],"standing":2,"wins":10,"losses":4,"pf":1594.38,"pa":1331.5,"draftPos":7},{"managers":["Ferris"],"standing":3,"wins":7,"losses":7,"pf":1515.48,"pa":1429.02,"draftPos":2},{"managers":["Lucas"],"standing":4,"wins":8,"losses":6,"pf":1534.1,"pa":1471.82,"draftPos":8},{"managers":["Robert"],"standing":5,"wins":9,"losses":5,"pf":1363.04,"pa":1374.02,"draftPos":3},{"managers":["Daniel"],"standing":6,"wins":8,"losses":6,"pf":1510.84,"pa":1438.4,"draftPos":11},{"managers":["Rodrigo"],"standing":7,"wins":7,"losses":7,"pf":1457.4,"pa":1543.96,"draftPos":5},{"managers":["Gabe"],"standing":8,"wins":7,"losses":7,"pf":1342.74,"pa":1408.52,"draftPos":10},{"managers":["Tucker"],"standing":9,"wins":5,"losses":9,"pf":1396.12,"pa":1529.7,"draftPos":1},{"managers":["Kennet"],"standing":10,"wins":5,"losses":9,"pf":1272.82,"pa":1416.82,"draftPos":6},{"managers":["Oliver","Julio"],"standing":11,"wins":5,"losses":9,"pf":1243.1,"pa":1470.98,"draftPos":9},{"managers":["John"],"standing":12,"wins":4,"losses":10,"pf":1257.56,"pa":1431.54,"draftPos":12}]},"2023":{"year":2023,"platform":"Sleeper","playoffTeams":6,"totalTeams":12,"champion":["Rodrigo"],"runnerUp":["Gabe"],"third":["Mitch"],"scoringChamp":"Tucker","regSznChamp":"Rodrigo","lastPlace":"Lucas","standings":[{"managers":["Rodrigo"],"standing":1,"wins":12,"losses":2,"pf":1567.12,"pa":1412.98,"draftPos":12},{"managers":["Gabe"],"standing":2,"wins":9,"losses":5,"pf":1553.9,"pa":1358.44,"draftPos":4},{"managers":["Mitch"],"standing":3,"wins":9,"losses":5,"pf":1435.74,"pa":1295.26,"draftPos":3},{"managers":["Tucker"],"standing":4,"wins":9,"losses":5,"pf":1598.5,"pa":1453.26,"draftPos":5},{"managers":["Eddy"],"standing":5,"wins":9,"losses":5,"pf":1531.38,"pa":1453.58,"draftPos":7},{"managers":["Robert"],"standing":6,"wins":7,"losses":7,"pf":1427.76,"pa":1422.32,"draftPos":8},{"managers":["Kennet"],"standing":7,"wins":6,"losses":8,"pf":1537.84,"pa":1533.72,"draftPos":6},{"managers":["Oliver","Julio"],"standing":8,"wins":6,"losses":8,"pf":1335.1,"pa":1456.86,"draftPos":2},{"managers":["John"],"standing":9,"wins":5,"losses":9,"pf":1466.66,"pa":1629.64,"draftPos":1},{"managers":["Daniel"],"standing":10,"wins":5,"losses":9,"pf":1382.58,"pa":1572.72,"draftPos":11},{"managers":["Ferris"],"standing":11,"wins":4,"losses":10,"pf":1335.16,"pa":1424.66,"draftPos":9},{"managers":["Lucas"],"standing":12,"wins":3,"losses":11,"pf":1365.02,"pa":1523.32,"draftPos":10}]},"2024":{"year":2024,"platform":"Sleeper","playoffTeams":6,"totalTeams":12,"champion":["John"],"runnerUp":["Gabe"],"third":["Robert"],"scoringChamp":"Gabe","regSznChamp":"John","lastPlace":"Rodrigo","standings":[{"managers":["John"],"standing":1,"wins":10,"losses":4,"pf":1669.06,"pa":1372.88,"draftPos":4},{"managers":["Gabe"],"standing":2,"wins":10,"losses":4,"pf":1694.22,"pa":1419.98,"draftPos":6},{"managers":["Robert"],"standing":3,"wins":9,"losses":5,"pf":1490.38,"pa":1449.26,"draftPos":3},{"managers":["Lucas"],"standing":4,"wins":7,"losses":7,"pf":1492.04,"pa":1430.68,"draftPos":9},{"managers":["Oliver","Julio"],"standing":5,"wins":9,"losses":5,"pf":1594.88,"pa":1597.88,"draftPos":12},{"managers":["Daniel"],"standing":6,"wins":9,"losses":5,"pf":1571.38,"pa":1340.48,"draftPos":5},{"managers":["Tucker"],"standing":7,"wins":6,"losses":8,"pf":1511.64,"pa":1531.54,"draftPos":7},{"managers":["Ferris"],"standing":8,"wins":6,"losses":8,"pf":1416.26,"pa":1507,"draftPos":1},{"managers":["Kennet"],"standing":9,"wins":6,"losses":8,"pf":1407.08,"pa":1502.8,"draftPos":11},{"managers":["Eddy"],"standing":10,"wins":6,"losses":8,"pf":1309.46,"pa":1515.02,"draftPos":2},{"managers":["Mitch"],"standing":11,"wins":3,"losses":11,"pf":1448.72,"pa":1663.18,"draftPos":8},{"managers":["Rodrigo"],"standing":12,"wins":3,"losses":11,"pf":1378.22,"pa":1652.64,"draftPos":10}]},"2025":{"year":2025,"platform":"Sleeper","playoffTeams":6,"totalTeams":12,"champion":["Oliver","Julio"],"runnerUp":["Mitch"],"third":["John"],"scoringChamp":"Tucker","regSznChamp":"Tucker","lastPlace":"Juan","standings":[{"managers":["Oliver","Julio"],"standing":1,"wins":8,"losses":6,"pf":1501.52,"pa":1515.86,"draftPos":1},{"managers":["Mitch"],"standing":2,"wins":9,"losses":5,"pf":1465.86,"pa":1360.52,"draftPos":11},{"managers":["John"],"standing":3,"wins":8,"losses":6,"pf":1525.08,"pa":1441.12,"draftPos":10},{"managers":["Tucker"],"standing":4,"wins":10,"losses":4,"pf":1796.9,"pa":1538.06,"draftPos":8},{"managers":["Robert"],"standing":5,"wins":8,"losses":6,"pf":1507.62,"pa":1558.16,"draftPos":2},{"managers":["Lucas"],"standing":6,"wins":7,"losses":7,"pf":1584.24,"pa":1514.4,"draftPos":4},{"managers":["Daniel"],"standing":7,"wins":7,"losses":7,"pf":1510.66,"pa":1559.02,"draftPos":3},{"managers":["Alvaro","Rodrigo"],"standing":8,"wins":7,"losses":7,"pf":1489.92,"pa":1498.62,"draftPos":12},{"managers":["Ferris"],"standing":9,"wins":7,"losses":7,"pf":1316.14,"pa":1437.38,"draftPos":5},{"managers":["Gabe"],"standing":10,"wins":5,"losses":9,"pf":1500.48,"pa":1500.8,"draftPos":7},{"managers":["Eddy"],"standing":11,"wins":5,"losses":9,"pf":1441.92,"pa":1555.54,"draftPos":9},{"managers":["Juan","Kennet"],"standing":12,"wins":3,"losses":11,"pf":1343.74,"pa":1504.58,"draftPos":6}]}},"records":{"highestPF":{"managers":["Tucker"],"standing":4,"wins":10,"losses":4,"pf":1796.9,"pa":1538.06,"draftPos":8,"manager":"Tucker","year":2025},"lowestPF":{"managers":["Miguel"],"standing":12,"wins":4,"losses":9,"pf":1176.74,"pa":1495.36,"draftPos":5,"manager":"Miguel","year":2018},"mostWins":{"managers":["Gabe"],"standing":4,"wins":12,"losses":2,"pf":1583.4,"pa":1387.28,"draftPos":8,"manager":"Gabe","year":2021},"mostLosses":{"managers":["John"],"standing":12,"wins":3,"losses":11,"pf":1241.3,"pa":1472.62,"draftPos":2,"manager":"John","year":2021},"bestPointDiff":{"managers":["Mitch"],"standing":1,"wins":9,"losses":5,"pf":1738.46,"pa":1379.76,"draftPos":4,"manager":"Mitch","year":2022,"diff":358.7},"worstPointDiff":{"managers":["Robert"],"standing":11,"wins":4,"losses":10,"pf":1261.28,"pa":1688.54,"draftPos":1,"manager":"Robert","year":2021,"diff":-427.26}}};
+
+function pct(v){ return v.toFixed(1)+'%'; }
+function num(v){ return (v===null||v===undefined) ? '—' : v; }
+function fmt1(v){ return (v===null||v===undefined) ? '—' : Number(v).toFixed(1); }
+function fmtPts(v){ return (v===null||v===undefined) ? '—' : Number(v).toLocaleString(undefined,{maximumFractionDigits:1}); }
+function initials(name){ return name.slice(0,2).toUpperCase(); }
+function avatarStyle(name){ const c = DATA.managers[name] ? DATA.managers[name].color : '#22c55e'; return 'background:'+c+';'; }
+
+function sortedManagerNames(){
+  return Object.keys(DATA.managers).sort((a,b)=>{
+    const ma=DATA.managers[a], mb=DATA.managers[b];
+    if(mb.champs!==ma.champs) return mb.champs-ma.champs;
+    if(mb.winPct!==ma.winPct) return mb.winPct-ma.winPct;
+    return a.localeCompare(b);
+  });
+}
+
+function alphabeticalManagerNames(){
+  return Object.keys(DATA.managers).sort((a,b)=>a.localeCompare(b));
+}
+
+function route(){
+  const hash = location.hash.replace('#/','') || 'home';
+  const parts = hash.split('/');
+  const page = parts[0];
+  document.querySelectorAll('#bottomnav .nitem').forEach(b=>b.classList.remove('active'));
+  const app = document.getElementById('app');
+  if(page==='home'){
+    document.querySelector('[data-go="home"]').classList.add('active');
+    app.innerHTML = renderHome();
+  } else if(page==='seasons'){
+    document.querySelector('[data-go="seasons"]').classList.add('active');
+    const year = parts[1] || Math.max(...DATA.years);
+    app.innerHTML = renderSeasons(Number(year));
+    attachSeasonPills();
+  } else if(page==='managers'){
+    document.querySelector('[data-go="managers"]').classList.add('active');
+    const mgr = parts[1] ? decodeURIComponent(parts[1]) : null;
+    app.innerHTML = renderManagers(mgr);
+    attachManagerChips();
+  }
+  window.scrollTo(0,0);
+}
+
+function renderHome(){
+  const names = sortedManagerNames();
+  const totalSeasons = DATA.years.length;
+  const totalManagers = names.length;
+  const latestYear = Math.max(...DATA.years);
+  const latestSeason = DATA.seasons[latestYear];
+  const champName = latestSeason.champion.join(' & ');
+
+  const champsBoard = names.filter(n=>DATA.managers[n].champs>0).slice(0,5);
+  const winPctBoard = [...names].sort((a,b)=>DATA.managers[b].winPct-DATA.managers[a].winPct).slice(0,5);
+
+  const r = DATA.records;
+
+  return `
+    <div class="topbar">
+      <div class="brand">
+        <span class="eyebrow">Fantasy Football</span>
+        <span class="title">Grow Up</span>
+        <span class="sub">${Math.min(...DATA.years)}–${Math.max(...DATA.years)}</span>
+      </div>
+    </div>
+    <div id="home-content">
+      <div class="stat-grid">
+        <div class="stat-card"><div class="num">${totalSeasons}</div><div class="lbl">Seasons</div></div>
+        <div class="stat-card"><div class="num">${totalManagers}</div><div class="lbl">Managers</div></div>
+        <div class="stat-card"><div class="num">12</div><div class="lbl">Teams/Year</div></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Reigning champion</div>
+        <a class="champion-card" href="#/seasons/${latestYear}">
+          <div class="ring">${initials(latestSeason.champion[0])}</div>
+          <div class="info">
+            <div class="yr">${latestYear} CHAMPION</div>
+            <div class="name">${champName}</div>
+            <div class="meta">Scoring champ: ${latestSeason.scoringChamp} · Reg. season: ${latestSeason.regSznChamp}</div>
+          </div>
+        </a>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Hall of fame <span style="font-weight:500;text-transform:none;color:var(--text-3)">by championships</span></div>
+        <div class="rank-list">
+          ${champsBoard.map((n,i)=>`
+            <a class="rank-row ${i===0?'gold':''}" href="#/managers/${encodeURIComponent(n)}">
+              <div class="pos">${i+1}</div>
+              <div class="rname">${n}</div>
+              <div class="rsub">${DATA.managers[n].seasons} szns</div>
+              <div class="rval">${DATA.managers[n].champs}&nbsp;🏆</div>
+            </a>`).join('')}
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Best win % <span style="font-weight:500;text-transform:none;color:var(--text-3)">min. 1 season</span></div>
+        <div class="rank-list">
+          ${winPctBoard.map((n,i)=>`
+            <a class="rank-row ${i===0?'gold':''}" href="#/managers/${encodeURIComponent(n)}">
+              <div class="pos">${i+1}</div>
+              <div class="rname">${n}</div>
+              <div class="rsub">${DATA.managers[n].wins}-${DATA.managers[n].losses}</div>
+              <div class="rval">${pct(DATA.managers[n].winPct)}</div>
+            </a>`).join('')}
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">League records</div>
+        <div class="card" style="padding:0;">
+          <div class="record-card">
+            <div class="rc-l"><div class="rc-t">Highest scoring season</div><div class="rc-n">${r.highestPF.manager} · ${r.highestPF.year}</div></div>
+            <div class="rc-r">${fmtPts(r.highestPF.pf)}</div>
+          </div>
+          <div class="record-card">
+            <div class="rc-l"><div class="rc-t">Most wins in a season</div><div class="rc-n">${r.mostWins.manager} · ${r.mostWins.year}</div></div>
+            <div class="rc-r">${r.mostWins.wins}-${r.mostWins.losses}</div>
+          </div>
+          <div class="record-card">
+            <div class="rc-l"><div class="rc-t">Best point differential</div><div class="rc-n">${r.bestPointDiff.manager} · ${r.bestPointDiff.year}</div></div>
+            <div class="rc-r">+${fmtPts(r.bestPointDiff.diff)}</div>
+          </div>
+          <div class="record-card">
+            <div class="rc-l"><div class="rc-t">Worst point differential</div><div class="rc-n">${r.worstPointDiff.manager} · ${r.worstPointDiff.year}</div></div>
+            <div class="rc-r">${fmtPts(r.worstPointDiff.diff)}</div>
+          </div>
+          <div class="record-card">
+            <div class="rc-l"><div class="rc-t">Lowest scoring season</div><div class="rc-n">${r.lowestPF.manager} · ${r.lowestPF.year}</div></div>
+            <div class="rc-r">${fmtPts(r.lowestPF.pf)}</div>
+          </div>
+        </div>
+      </div>
+      <div style="height:8px"></div>
+    </div>
+  `;
+}
+
+function attachSeasonPills(){
+  document.querySelectorAll('.pill[data-year]').forEach(p=>{
+    p.addEventListener('click', ()=>{ location.hash = '#/seasons/'+p.dataset.year; });
+  });
+}
+
+function renderSeasons(year){
+  const s = DATA.seasons[year];
+  const years = [...DATA.years].sort((a,b)=>b-a);
+  const pills = years.map(y=>`<button class="pill ${y===year?'active':''}" data-year="${y}">${y}</button>`).join('');
+
+  const rows = s.standings.map(row=>{
+    const mgr = DATA.managers[row.manager];
+    const names = row.managers.map(m=>`<a href="#/managers/${encodeURIComponent(m)}" style="color:inherit">${m}</a>`).join(' <span style="color:var(--text-3)">&amp;</span> ');
+    return `<tr>
+      <td>${row.standing}</td>
+      <td>${names}</td>
+      <td class="${row.wins>row.losses?'win-txt':'loss-txt'}">${row.wins}-${row.losses}</td>
+      <td class="num-cell">${fmtPts(row.pf)}</td>
+      <td class="num-cell">${fmtPts(row.pa)}</td>
+      <td class="num-cell">${num(row.draftPos)}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="topbar">
+      <div class="brand">
+        <span class="eyebrow">Season</span>
+        <span class="title">${year}</span>
+        <span class="sub">${s.platform} · ${s.totalTeams} teams · ${s.playoffTeams} made playoffs</span>
+      </div>
+    </div>
+    <div class="pillrow">${pills}</div>
+
+    <div class="podium">
+      <div class="slot"><div class="medal">2ND</div><div class="pname">${s.runnerUp.join(' & ')}</div></div>
+      <div class="slot first"><div class="medal">CHAMPION</div><div class="pname">${s.champion.join(' & ')}</div></div>
+      <div class="slot"><div class="medal">3RD</div><div class="pname">${s.third.join(' & ')}</div></div>
+    </div>
+
+    <div class="badge-row">
+      <div class="badge"><div class="blbl">Scoring champ</div><div class="bval">${s.scoringChamp||'—'}</div></div>
+      <div class="badge"><div class="blbl">Reg. season champ</div><div class="bval">${s.regSznChamp||'—'}</div></div>
+      <div class="badge"><div class="blbl">Wooden spoon</div><div class="bval">${s.lastPlace||'—'}</div></div>
+    </div>
+
+    <div class="section-title">Final standings</div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>#</th><th>Manager</th><th>Record</th><th>PF</th><th>PA</th><th>Draft</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+    <div style="height:8px"></div>
+  `;
+}
+
+function attachManagerChips(){
+  document.querySelectorAll('.mgr-chip[data-mgr]').forEach(c=>{
+    c.addEventListener('click', ()=>{ location.hash = '#/managers/'+encodeURIComponent(c.dataset.mgr); });
+  });
+}
+
+function renderManagers(selected){
+  const names = alphabeticalManagerNames();
+  if(!selected) selected = names[0];
+  const grid = names.map(n=>`
+    <div class="mgr-chip ${n===selected?'active':''}" data-mgr="${n}">
+      <div class="av" style="${avatarStyle(n)}">${initials(n)}</div>
+      <div class="nm">${n}</div>
+    </div>`).join('');
+
+  const m = DATA.managers[selected];
+  const yearsRows = m.years.map(y=>{
+    const tags = [];
+    if(y.regSznChamp) tags.push('<span class="tag gold">REG</span>');
+    if(y.scoringChamp) tags.push('<span class="tag gold">PTS</span>');
+    const co = y.coManagedWith ? `<div style="font-size:10px;font-weight:600;color:var(--text-3);margin-top:2px;">with <a href="#/managers/${encodeURIComponent(y.coManagedWith)}" style="color:var(--text-2);text-decoration:underline;">${y.coManagedWith}</a></div>` : '';
+    return `<tr class="${y.standing===1?'me':''}">
+      <td>${y.year}${co}</td>
+      <td>${y.standing}${y.standing===1?' 🏆':''}</td>
+      <td class="${y.wins>y.losses?'win-txt':'loss-txt'}">${y.wins}-${y.losses}</td>
+      <td class="num-cell">${fmtPts(y.pf)}</td>
+      <td>${y.playoffs?'Yes':'No'}${tags.join('')}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="topbar">
+      <div class="brand">
+        <span class="eyebrow">Managers</span>
+        <span class="title">${DATA.leagueName}</span>
+        <span class="sub">Tap a manager for career stats</span>
+      </div>
+    </div>
+    <div class="mgr-grid">${grid}</div>
+
+    <div class="section">
+      <div class="manager-header">
+        <div class="av-lg" style="${avatarStyle(selected)}">${initials(selected)}</div>
+        <div>
+          <div class="mh-name">${selected}</div>
+          <div class="mh-sub">${m.seasons} seasons played · ${m.wins}-${m.losses} all-time</div>
+        </div>
+      </div>
+
+      <div class="badge-row">
+        <div class="badge"><div class="blbl">Championships</div><div class="bval">${m.champs}</div></div>
+        <div class="badge"><div class="blbl">Win %</div><div class="bval">${pct(m.winPct)}</div></div>
+        <div class="badge"><div class="blbl">Avg finish</div><div class="bval">${fmt1(m.avgFinish)}</div></div>
+      </div>
+      <div class="badge-row">
+        <div class="badge"><div class="blbl">Scoring titles</div><div class="bval">${m.scoringTitles}</div></div>
+        <div class="badge"><div class="blbl">Reg. szn titles</div><div class="bval">${m.regSznTitles}</div></div>
+        <div class="badge"><div class="blbl">Playoffs made</div><div class="bval">${m.playoffs}</div></div>
+      </div>
+      <div class="badge-row">
+        <div class="badge"><div class="blbl">Avg points/szn</div><div class="bval">${fmtPts(m.avgPF)}</div></div>
+        <div class="badge"><div class="blbl">Avg draft pos</div><div class="bval">${fmt1(m.avgDraftPos)}</div></div>
+        <div class="badge"><div class="blbl">Last places</div><div class="bval">${m.lastPlaces}</div></div>
+      </div>
+
+      <div class="section-title">Season by season</div>
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Year</th><th>Finish</th><th>Record</th><th>PF</th><th>Playoffs</th></tr></thead>
+            <tbody>${yearsRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div style="height:8px"></div>
+  `;
+}
+
+document.querySelectorAll('#bottomnav .nitem').forEach(b=>{
+  b.addEventListener('click', ()=>{ location.hash = '#/'+b.dataset.go; });
+});
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
