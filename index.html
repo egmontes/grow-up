@@ -461,6 +461,39 @@ document.querySelectorAll('#bottomnav .nitem').forEach(b=>{
   b.addEventListener('click', ()=>{ location.hash = '#/'+b.dataset.go; });
 });
 window.addEventListener('hashchange', route);
+
+const PAGE_ORDER = ['home','seasons','managers'];
+let swipeStartX=null, swipeStartY=null, swipeStartTarget=null;
+
+document.addEventListener('touchstart', (e)=>{
+  const t = e.touches[0];
+  swipeStartX = t.clientX;
+  swipeStartY = t.clientY;
+  swipeStartTarget = e.target;
+}, {passive:true});
+
+document.addEventListener('touchend', (e)=>{
+  if(swipeStartX===null) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - swipeStartX;
+  const dy = t.clientY - swipeStartY;
+  const startTarget = swipeStartTarget;
+  swipeStartX = null; swipeStartY = null; swipeStartTarget = null;
+
+  if(startTarget && startTarget.closest('.table-scroll, .pillrow')) return;
+  if(Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+
+  const current = (location.hash.replace('#/','') || 'home').split('/')[0];
+  const idx = PAGE_ORDER.indexOf(current);
+  if(idx===-1) return;
+
+  if(dx < 0 && idx < PAGE_ORDER.length - 1){
+    location.hash = '#/' + PAGE_ORDER[idx+1];
+  } else if(dx > 0 && idx > 0){
+    location.hash = '#/' + PAGE_ORDER[idx-1];
+  }
+}, {passive:true});
+
 route();
 </script>
 </body>
