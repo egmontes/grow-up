@@ -222,7 +222,6 @@ function route(){
     if(selected.length){
       const detail = document.getElementById('manager-detail');
       if(detail && detail.scrollIntoView){
-        window.scrollTo(0,0);
         requestAnimationFrame(()=>{ detail.scrollIntoView({behavior:'smooth', block:'start'}); });
         return;
       }
