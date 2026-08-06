@@ -219,6 +219,14 @@ function route(){
     const mgr = parts[1] ? decodeURIComponent(parts[1]) : null;
     app.innerHTML = renderManagers(mgr);
     attachManagerChips();
+    if(mgr){
+      const detail = document.getElementById('manager-detail');
+      if(detail && detail.scrollIntoView){
+        window.scrollTo(0,0);
+        requestAnimationFrame(()=>{ detail.scrollIntoView({behavior:'smooth', block:'start'}); });
+        return;
+      }
+    }
   }
   window.scrollTo(0,0);
 }
@@ -386,12 +394,25 @@ function attachManagerChips(){
 
 function renderManagers(selected){
   const names = alphabeticalManagerNames();
-  if(!selected) selected = names[0];
   const grid = names.map(n=>`
     <div class="mgr-chip ${n===selected?'active':''}" data-mgr="${n}">
       <div class="av" style="${avatarStyle(n)}">${initials(n)}</div>
       <div class="nm">${n}</div>
     </div>`).join('');
+
+  if(!selected){
+    return `
+      <div class="topbar">
+        <div class="brand">
+          <span class="eyebrow">Managers</span>
+          <span class="title">${DATA.leagueName}</span>
+          <span class="sub">Tap a manager for career stats</span>
+        </div>
+      </div>
+      <div class="mgr-grid">${grid}</div>
+      <div class="empty">Select a manager above to see their stats</div>
+    `;
+  }
 
   const m = DATA.managers[selected];
   const yearsRows = m.years.map(y=>{
@@ -418,7 +439,7 @@ function renderManagers(selected){
     </div>
     <div class="mgr-grid">${grid}</div>
 
-    <div class="section">
+    <div class="section" id="manager-detail">
       <div class="manager-header">
         <div class="av-lg" style="${avatarStyle(selected)}">${initials(selected)}</div>
         <div>
