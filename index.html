@@ -386,7 +386,7 @@ function renderHome(){
   const champName = latestSeason.champion.join(' & ');
 
   const champsBoard = names.filter(n=>DATA.managers[n].champs>0).slice(0,5);
-  const winPctBoard = [...names].sort((a,b)=>DATA.managers[b].winPct-DATA.managers[a].winPct).slice(0,5);
+  const winPctBoard = names.filter(n=>DATA.managers[n].seasons>=2).sort((a,b)=>DATA.managers[b].winPct-DATA.managers[a].winPct).slice(0,5);
 
   const r = DATA.records;
 
@@ -431,7 +431,7 @@ function renderHome(){
       </div>
 
       <div class="section">
-        <div class="section-title">Best win % <span style="font-weight:500;text-transform:none;color:var(--text-3)">min. 1 season</span></div>
+        <div class="section-title">Best win % <span style="font-weight:500;text-transform:none;color:var(--text-3)">min. 2 seasons</span></div>
         <div class="rank-list">
           ${winPctBoard.map((n,i)=>`
             <a class="rank-row ${i===0?'gold':''}" href="#/managers/${encodeURIComponent(n)}">
