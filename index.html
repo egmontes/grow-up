@@ -216,10 +216,10 @@ function route(){
     attachSeasonPills();
   } else if(page==='managers'){
     document.querySelector('[data-go="managers"]').classList.add('active');
-    const mgr = parts[1] ? decodeURIComponent(parts[1]) : null;
-    app.innerHTML = renderManagers(mgr);
+    const selected = parts[1] ? parts[1].split(',').map(decodeURIComponent).filter(n=>DATA.managers[n]) : [];
+    app.innerHTML = renderManagers(selected);
     attachManagerChips();
-    if(mgr){
+    if(selected.length){
       const detail = document.getElementById('manager-detail');
       if(detail && detail.scrollIntoView){
         window.scrollTo(0,0);
@@ -388,32 +388,26 @@ function renderSeasons(year){
 
 function attachManagerChips(){
   document.querySelectorAll('.mgr-chip[data-mgr]').forEach(c=>{
-    c.addEventListener('click', ()=>{ location.hash = '#/managers/'+encodeURIComponent(c.dataset.mgr); });
+    c.addEventListener('click', ()=>{
+      const n = c.dataset.mgr;
+      const hash = location.hash.replace('#/managers','').replace(/^\//,'');
+      let current = hash ? hash.split(',').map(decodeURIComponent).filter(x=>DATA.managers[x]) : [];
+      let next;
+      if(current.includes(n)){
+        next = current.filter(x=>x!==n);
+      } else if(current.length===0){
+        next = [n];
+      } else if(current.length===1){
+        next = [current[0], n];
+      } else {
+        next = [current[0], n];
+      }
+      location.hash = next.length ? '#/managers/'+next.map(encodeURIComponent).join(',') : '#/managers';
+    });
   });
 }
 
-function renderManagers(selected){
-  const names = alphabeticalManagerNames();
-  const grid = names.map(n=>`
-    <div class="mgr-chip ${n===selected?'active':''}" data-mgr="${n}">
-      <div class="av" style="${avatarStyle(n)}">${initials(n)}</div>
-      <div class="nm">${n}</div>
-    </div>`).join('');
-
-  if(!selected){
-    return `
-      <div class="topbar">
-        <div class="brand">
-          <span class="eyebrow">Managers</span>
-          <span class="title">${DATA.leagueName}</span>
-          <span class="sub">Tap a manager for career stats</span>
-        </div>
-      </div>
-      <div class="mgr-grid">${grid}</div>
-      <div class="empty">Select a manager above to see their stats</div>
-    `;
-  }
-
+function renderManagerDetail(selected){
   const m = DATA.managers[selected];
   const yearsRows = m.years.map(y=>{
     const tags = [];
@@ -430,52 +424,115 @@ function renderManagers(selected){
   }).join('');
 
   return `
+    <div class="manager-header">
+      <div class="av-lg" style="${avatarStyle(selected)}">${initials(selected)}</div>
+      <div>
+        <div class="mh-name">${selected}</div>
+        <div class="mh-sub">${m.seasons} seasons played · ${m.wins}-${m.losses} all-time</div>
+      </div>
+    </div>
+
+    <div class="badge-row">
+      <div class="badge"><div class="blbl">Championships</div><div class="bval">${m.champs}</div></div>
+      <div class="badge"><div class="blbl">Win %</div><div class="bval">${pct(m.winPct)}</div></div>
+      <div class="badge"><div class="blbl">Avg finish</div><div class="bval">${fmt1(m.avgFinish)}</div></div>
+    </div>
+    <div class="badge-row">
+      <div class="badge"><div class="blbl">Scoring titles</div><div class="bval">${m.scoringTitles}</div></div>
+      <div class="badge"><div class="blbl">Reg. szn titles</div><div class="bval">${m.regSznTitles}</div></div>
+      <div class="badge"><div class="blbl">Playoffs made</div><div class="bval">${m.playoffs}</div></div>
+    </div>
+    <div class="badge-row">
+      <div class="badge"><div class="blbl">Avg points/szn</div><div class="bval">${fmtPts(m.avgPF)}</div></div>
+      <div class="badge"><div class="blbl">Avg draft pos</div><div class="bval">${fmt1(m.avgDraftPos)}</div></div>
+      <div class="badge"><div class="blbl">Last places</div><div class="bval">${m.lastPlaces}</div></div>
+    </div>
+
+    <div class="section-title">Season by season</div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Year</th><th>Finish</th><th>Record</th><th>PF</th><th>Playoffs</th></tr></thead>
+          <tbody>${yearsRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+const COMPARE_ROWS = [
+  {label:'Championships', key:'champs', dir:'high', fmt:num},
+  {label:'Win %', key:'winPct', dir:'high', fmt:pct},
+  {label:'Avg finish', key:'avgFinish', dir:'low', fmt:fmt1},
+  {label:'Scoring titles', key:'scoringTitles', dir:'high', fmt:num},
+  {label:'Reg. szn titles', key:'regSznTitles', dir:'high', fmt:num},
+  {label:'Playoffs made', key:'playoffs', dir:'high', fmt:num},
+  {label:'Avg points/szn', key:'avgPF', dir:'high', fmt:fmtPts},
+  {label:'Last places', key:'lastPlaces', dir:'low', fmt:num},
+  {label:'Seasons played', key:'seasons', dir:null, fmt:num},
+];
+
+function renderManagerCompare(nameA, nameB){
+  const a = DATA.managers[nameA], b = DATA.managers[nameB];
+  const rows = COMPARE_ROWS.map(r=>{
+    const av = a[r.key], bv = b[r.key];
+    let aWin=false, bWin=false;
+    if(r.dir==='high' && av!==bv){ aWin = av>bv; bWin = bv>av; }
+    if(r.dir==='low' && av!==bv){ aWin = av<bv; bWin = bv<av; }
+    return `<div style="display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);">
+      <div style="flex:1;text-align:right;font-size:14px;font-weight:800;color:${aWin?'var(--accent)':'var(--text-2)'};">${r.fmt(av)}</div>
+      <div style="width:110px;text-align:center;font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;padding:0 8px;">${r.label}</div>
+      <div style="flex:1;text-align:left;font-size:14px;font-weight:800;color:${bWin?'var(--accent)':'var(--text-2)'};">${r.fmt(bv)}</div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:16px;">
+      <a href="#/managers/${encodeURIComponent(nameA)}" style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+        <div class="av-lg" style="${avatarStyle(nameA)}">${initials(nameA)}</div>
+        <div style="font-size:13px;font-weight:800;">${nameA}</div>
+      </a>
+      <div style="font-size:12px;font-weight:800;color:var(--text-3);">VS</div>
+      <a href="#/managers/${encodeURIComponent(nameB)}" style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+        <div class="av-lg" style="${avatarStyle(nameB)}">${initials(nameB)}</div>
+        <div style="font-size:13px;font-weight:800;">${nameB}</div>
+      </a>
+    </div>
+    <div class="table-wrap" style="overflow:hidden;">
+      ${rows}
+    </div>
+    <div class="empty" style="padding:16px 10px 0;">Tap a manager in the grid above to swap them in, or tap a selected one again to remove them</div>
+  `;
+}
+
+function renderManagers(selected){
+  const names = alphabeticalManagerNames();
+  const grid = names.map(n=>`
+    <div class="mgr-chip ${selected.includes(n)?'active':''}" data-mgr="${n}">
+      <div class="av" style="${avatarStyle(n)}">${initials(n)}</div>
+      <div class="nm">${n}</div>
+    </div>`).join('');
+
+  const header = `
     <div class="topbar">
       <div class="brand">
         <span class="eyebrow">Managers</span>
         <span class="title">${DATA.leagueName}</span>
-        <span class="sub">Tap a manager for career stats</span>
+        <span class="sub">${selected.length===2 ? 'Head-to-head comparison' : 'Tap a manager for career stats, or pick two to compare'}</span>
       </div>
     </div>
     <div class="mgr-grid">${grid}</div>
-
-    <div class="section" id="manager-detail">
-      <div class="manager-header">
-        <div class="av-lg" style="${avatarStyle(selected)}">${initials(selected)}</div>
-        <div>
-          <div class="mh-name">${selected}</div>
-          <div class="mh-sub">${m.seasons} seasons played · ${m.wins}-${m.losses} all-time</div>
-        </div>
-      </div>
-
-      <div class="badge-row">
-        <div class="badge"><div class="blbl">Championships</div><div class="bval">${m.champs}</div></div>
-        <div class="badge"><div class="blbl">Win %</div><div class="bval">${pct(m.winPct)}</div></div>
-        <div class="badge"><div class="blbl">Avg finish</div><div class="bval">${fmt1(m.avgFinish)}</div></div>
-      </div>
-      <div class="badge-row">
-        <div class="badge"><div class="blbl">Scoring titles</div><div class="bval">${m.scoringTitles}</div></div>
-        <div class="badge"><div class="blbl">Reg. szn titles</div><div class="bval">${m.regSznTitles}</div></div>
-        <div class="badge"><div class="blbl">Playoffs made</div><div class="bval">${m.playoffs}</div></div>
-      </div>
-      <div class="badge-row">
-        <div class="badge"><div class="blbl">Avg points/szn</div><div class="bval">${fmtPts(m.avgPF)}</div></div>
-        <div class="badge"><div class="blbl">Avg draft pos</div><div class="bval">${fmt1(m.avgDraftPos)}</div></div>
-        <div class="badge"><div class="blbl">Last places</div><div class="bval">${m.lastPlaces}</div></div>
-      </div>
-
-      <div class="section-title">Season by season</div>
-      <div class="table-wrap">
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>Year</th><th>Finish</th><th>Record</th><th>PF</th><th>Playoffs</th></tr></thead>
-            <tbody>${yearsRows}</tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-    <div style="height:8px"></div>
   `;
+
+  if(selected.length===0){
+    return header + `<div class="empty">Select a manager above to see their stats</div>`;
+  }
+
+  if(selected.length===1){
+    return header + `<div class="section" id="manager-detail">${renderManagerDetail(selected[0])}</div><div style="height:8px"></div>`;
+  }
+
+  return header + `<div class="section" id="manager-detail">${renderManagerCompare(selected[0], selected[1])}</div><div style="height:8px"></div>`;
 }
 
 document.querySelectorAll('#bottomnav .nitem').forEach(b=>{
