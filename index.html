@@ -144,9 +144,10 @@
   .empty{padding:40px 10px;text-align:center;color:var(--text-3);font-size:13px;}
 
   nav.bottomnav{
-    position:fixed;left:0;right:0;bottom:0;background:rgba(10,13,20,0.92);backdrop-filter:blur(10px);
-    border-top:1px solid var(--border);display:flex;padding:8px 12px calc(8px + env(safe-area-inset-bottom));
-    max-width:560px;margin:0 auto;
+    position:fixed;left:0;right:0;bottom:0;background:rgba(17,22,36,0.94);backdrop-filter:blur(14px);
+    border-top:1px solid rgba(255,255,255,0.07);display:flex;padding:8px 12px calc(8px + env(safe-area-inset-bottom));
+    max-width:560px;margin:0 auto;z-index:20;
+    box-shadow:0 -10px 28px rgba(0,0,0,0.5),0 -1px 0 rgba(255,255,255,0.03);
   }
   nav.bottomnav .nitem{
     flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;color:var(--text-3);
@@ -333,7 +334,7 @@ function renderSeasons(year){
     const mgr = DATA.managers[row.manager];
     const names = row.managers.map(m=>`<a href="#/managers/${encodeURIComponent(m)}" style="color:inherit">${m}</a>`).join(' <span style="color:var(--text-3)">&amp;</span> ');
     return `<tr>
-      <td>${row.standing}</td>
+      <td>${row.standing}${row.standing===1?' 🏆':''}</td>
       <td>${names}</td>
       <td class="${row.wins>row.losses?'win-txt':'loss-txt'}">${row.wins}-${row.losses}</td>
       <td class="num-cell">${fmtPts(row.pf)}</td>
@@ -353,15 +354,15 @@ function renderSeasons(year){
     <div class="pillrow">${pills}</div>
 
     <div class="podium">
-      <div class="slot"><div class="medal">2ND</div><div class="pname">${s.runnerUp.join(' & ')}</div></div>
-      <div class="slot first"><div class="medal">CHAMPION</div><div class="pname">${s.champion.join(' & ')}</div></div>
-      <div class="slot"><div class="medal">3RD</div><div class="pname">${s.third.join(' & ')}</div></div>
+      <div class="slot"><div class="medal">🥈 2ND</div><div class="pname">${s.runnerUp.join(' & ')}</div></div>
+      <div class="slot first"><div class="medal">🏆 CHAMPION</div><div class="pname">${s.champion.join(' & ')}</div></div>
+      <div class="slot"><div class="medal">🥉 3RD</div><div class="pname">${s.third.join(' & ')}</div></div>
     </div>
 
     <div class="badge-row">
-      <div class="badge"><div class="blbl">Scoring champ</div><div class="bval">${s.scoringChamp||'—'}</div></div>
-      <div class="badge"><div class="blbl">Reg. season champ</div><div class="bval">${s.regSznChamp||'—'}</div></div>
-      <div class="badge"><div class="blbl">Wooden spoon</div><div class="bval">${s.lastPlace||'—'}</div></div>
+      <div class="badge"><div class="blbl">💯 Scoring champ</div><div class="bval">${s.scoringChamp||'—'}</div></div>
+      <div class="badge"><div class="blbl">📈 Reg. season champ</div><div class="bval">${s.regSznChamp||'—'}</div></div>
+      <div class="badge"><div class="blbl">💩 Wooden spoon</div><div class="bval">${s.lastPlace||'—'}</div></div>
     </div>
 
     <div class="section-title">Final standings</div>
