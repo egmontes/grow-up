@@ -385,7 +385,7 @@ function renderHome(){
   const latestSeason = DATA.seasons[latestYear];
   const champName = latestSeason.champion.join(' & ');
 
-  const champsBoard = names.filter(n=>DATA.managers[n].champs>0).slice(0,5);
+  const champsBoard = names.filter(n=>DATA.managers[n].champs>0);
   const winPctBoard = names.filter(n=>DATA.managers[n].seasons>=2).sort((a,b)=>DATA.managers[b].winPct-DATA.managers[a].winPct).slice(0,5);
 
   const r = DATA.records;
