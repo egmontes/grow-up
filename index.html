@@ -93,6 +93,16 @@
   }
   .pill.active{background:var(--accent);color:#04140a;border-color:var(--accent);}
 
+  .pillrow-fade{position:relative;}
+  .pillrow-fade::before,.pillrow-fade::after{
+    content:'';position:absolute;top:0;bottom:8px;width:32px;pointer-events:none;z-index:2;
+    transition:opacity .18s ease;opacity:1;
+  }
+  .pillrow-fade::before{left:0;background:linear-gradient(to right, var(--bg) 0%, transparent 100%);}
+  .pillrow-fade::after{right:0;background:linear-gradient(to left, var(--bg) 0%, transparent 100%);}
+  .pillrow-fade.at-start::before{opacity:0;}
+  .pillrow-fade.at-end::after{opacity:0;}
+
   .mgr-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
   .mgr-chip{
     background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
@@ -276,6 +286,7 @@ function paintPanels(){
   attachSeasonPills();
   attachManagerChips();
   attachStatPills();
+  attachPillFade();
   document.querySelectorAll('#bottomnav .nitem').forEach(b=>b.classList.toggle('active', b.dataset.go===curPage));
   if(curPage==='managers' && lastManagers.length){
     const detail = panelCur.querySelector('#manager-detail');
@@ -310,11 +321,21 @@ function handleHashChange(){
   if(page==='stats') lastStat = parts[1] && STATS_LIST.some(s=>s.key===parts[1]) ? parts[1] : lastStat;
 
   if(page===curPage){
+    const prevScrollTop = panelCur.scrollTop;
+    const prevPillEl = panelCur.querySelector('.pillrow');
+    const prevPillScroll = prevPillEl ? prevPillEl.scrollLeft : 0;
     panelCur.innerHTML = wrapPanel(pageHTML(curPage));
-    panelCur.scrollTop = 0;
+    if(curPage==='stats'){
+      panelCur.scrollTop = prevScrollTop;
+      const newPillEl = panelCur.querySelector('.pillrow');
+      if(newPillEl) newPillEl.scrollLeft = prevPillScroll;
+    } else {
+      panelCur.scrollTop = 0;
+    }
     attachSeasonPills();
     attachManagerChips();
     attachStatPills();
+    attachPillFade();
     if(curPage==='managers' && lastManagers.length){
       const detail = panelCur.querySelector('#manager-detail');
       if(detail && detail.scrollIntoView){
@@ -513,6 +534,21 @@ function attachSeasonPills(){
   });
 }
 
+function attachPillFade(){
+  document.querySelectorAll('.pillrow-fade').forEach(wrap=>{
+    const row = wrap.querySelector('.pillrow');
+    if(!row) return;
+    const update = ()=>{
+      const atStart = row.scrollLeft <= 1;
+      const atEnd = row.scrollLeft >= row.scrollWidth - row.clientWidth - 1;
+      wrap.classList.toggle('at-start', atStart);
+      wrap.classList.toggle('at-end', atEnd);
+    };
+    update();
+    row.addEventListener('scroll', update, {passive:true});
+  });
+}
+
 const STATS_LIST = [
   {key:'champs', label:'Championships', dir:'high', fmt:num},
   {key:'winPct', label:'Win %', dir:'high', fmt:pct},
@@ -562,7 +598,7 @@ function renderStatsHub(statKey){
         <span class="sub">${stat.dir==='low' ? 'Lower is better' : 'Higher is better'} · ${names.length} current managers</span>
       </div>
     </div>
-    <div class="pillrow">${pills}</div>
+    <div class="pillrow-fade"><div class="pillrow">${pills}</div></div>
     <div class="section">
       <div class="rank-list">${rows}</div>
     </div>
@@ -605,7 +641,7 @@ function renderSeasons(year){
     <div class="badge-row">
       <div class="badge"><div class="blbl">🎖️ Commissioner</div><div class="bval">${s.commissioner}</div></div>
     </div>
-    <div class="pillrow">${pills}</div>
+    <div class="pillrow-fade"><div class="pillrow">${pills}</div></div>
 
     <div class="podium">
       <div class="slot"><div class="medal">🥈 2ND</div><div class="pname">${s.runnerUp.join(' & ')}</div></div>
