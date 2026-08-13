@@ -549,6 +549,21 @@ function attachPillFade(){
   });
 }
 
+function rankColor(rank, of){
+  if(!of || of<=1) return 'var(--text)';
+  const t = (rank-1)/(of-1); // 0 = best, 1 = worst
+  const green = [34,197,94], white = [244,246,251], red = [224,87,74];
+  let c;
+  if(t<=0.5){
+    const tt = t/0.5;
+    c = green.map((g,i)=>Math.round(g+(white[i]-g)*tt));
+  } else {
+    const tt = (t-0.5)/0.5;
+    c = white.map((w,i)=>Math.round(w+(red[i]-w)*tt));
+  }
+  return 'rgb('+c.join(',')+')';
+}
+
 const STATS_LIST = [
   {key:'champs', label:'Championships', dir:'high', fmt:num},
   {key:'winPct', label:'Win %', dir:'high', fmt:pct},
@@ -584,9 +599,8 @@ function renderStatsHub(statKey){
     return `
     <a class="rank-row ${r.rank===1?'gold':''}" href="#/managers/${encodeURIComponent(n)}">
       <div class="pos">${r.rank}</div>
-      <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#0a0d14;flex:none;${avatarStyle(n)}">${initials(n)}</div>
       <div class="rname">${n}</div>
-      <div class="rval">${stat.fmt(m[stat.key])}</div>
+      <div class="rval" style="color:${rankColor(r.rank, r.of)}">${stat.fmt(m[stat.key])}</div>
     </a>`;
   }).join('');
 
