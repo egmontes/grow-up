@@ -149,8 +149,15 @@
   .tag.live .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#ff5a5f;margin-right:4px;animation:livepulse 1.4s ease-in-out infinite;}
   @keyframes livepulse{0%,100%{opacity:1;}50%{opacity:0.25;}}
   .matchup-card{
-    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;
+  }
+  .matchup-card.rivalry{padding-top:27px;}
+  .rivalry-banner{
+    position:absolute;top:0;left:0;right:0;border-radius:var(--radius) var(--radius) 0 0;
+    background:linear-gradient(90deg,#ff5a3c,#ff8a3c);color:#1a0a03;
+    font-size:9px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;
+    text-align:center;padding:4px 0;
   }
   .matchup-card .side{flex:1;min-width:0;}
   .matchup-card .side.right{text-align:right;}
@@ -817,6 +824,9 @@ const SLEEPER_ROSTERS = {
   6:['Daniel'], 7:['Lucas'], 8:['Tucker'], 9:['Alvaro'], 10:['Robert'],
   11:['Ferris'], 12:['Julio','Oliver']
 };
+// Weeks manually flagged as rivalry week — shows a banner on every matchup
+// card that week. Keyed by "season-week".
+const RIVALRY_WEEKS = new Set(['2026-1']);
 let live = { status:'idle', season:null, week:null, standings:null, matchups:null, error:null };
 
 async function loadLiveData(){
@@ -971,14 +981,17 @@ function renderLiveSeason(){
     return header + `<div class="empty">Couldn't reach Sleeper (${live.error||'network error'}).<br><a href="#" id="live-retry" style="color:var(--accent);font-weight:700;">Tap to retry</a></div>`;
   }
 
+  const isRivalryWeek = RIVALRY_WEEKS.has(live.season+'-'+live.week);
+  const rivalryBanner = isRivalryWeek ? '<div class="rivalry-banner">🔥 Rivalry Week</div>' : '';
   const matchupCards = live.matchups.map((pair, idx)=>{
     if(pair.length<2){
       const a = pair[0];
-      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}${tallBoyBadge(a.tallBoy)}</div>${playedLine(a)}<div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
+      return `<div class="matchup-card${isRivalryWeek?' rivalry':''}">${rivalryBanner}<div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}${tallBoyBadge(a.tallBoy)}</div>${playedLine(a)}<div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
     }
     const [a,b] = pair;
     const aLead = a.points>b.points, bLead = b.points>a.points;
-    return `<div class="matchup-card clickable" data-matchup-idx="${idx}">
+    return `<div class="matchup-card clickable${isRivalryWeek?' rivalry':''}" data-matchup-idx="${idx}">
+      ${rivalryBanner}
       <div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}${tallBoyBadge(a.tallBoy)}</div>${playedLine(a)}<div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
       <div class="vs">VS</div>
       <div class="side right"><div class="mname">${tallBoyBadge(b.tallBoy)}${vpBadge(b.vp)} ${b.managers.join(' & ')}</div>${playedLine(b)}<div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
