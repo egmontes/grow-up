@@ -584,6 +584,11 @@ function vpBadge(vp){
   return '<span class="mvp" style="background:rgb('+c.join(',')+');color:#eafff2;">'+vp+' VP</span>';
 }
 
+function tallBoyBadge(isLow){
+  if(!isLow) return '';
+  return '<span class="mvp" style="background:#7a1f1f;color:#ffdede;">🍺 TALL BOY</span>';
+}
+
 function rankColor(rank, of){
   if(!of || of<=1) return 'var(--text)';
   const t = (rank-1)/(of-1); // 0 = best, 1 = worst
@@ -751,12 +756,18 @@ async function loadLiveData(){
 
     const curWeekMatchups = weeks[weeks.length-1] || [];
     const curWeekVP = weekVP(curWeekMatchups);
+    const curWeekList = (curWeekMatchups||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
+    let tallBoyId = null;
+    if(curWeekList.length){
+      tallBoyId = curWeekList.reduce((min,m)=> (m.points||0) < (min.points||0) ? m : min, curWeekList[0]).roster_id;
+    }
     const byId2 = {};
     curWeekMatchups.forEach(m=>{ (byId2[m.matchup_id] = byId2[m.matchup_id]||[]).push(m); });
     const matchups = Object.values(byId2).map(pair=>pair.map(m=>({
       managers: SLEEPER_ROSTERS[m.roster_id] || ['Roster '+m.roster_id],
       points: m.points || 0,
       vp: curWeekVP[m.roster_id] || 0,
+      tallBoy: m.roster_id === tallBoyId,
     })));
 
     live = { status:'ready', season: league.season, week: curWeek, standings, matchups, error:null };
@@ -798,14 +809,14 @@ function renderLiveSeason(){
   const matchupCards = live.matchups.map(pair=>{
     if(pair.length<2){
       const a = pair[0];
-      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}</div><div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
+      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}${tallBoyBadge(a.tallBoy)}</div><div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
     }
     const [a,b] = pair;
     const aLead = a.points>b.points, bLead = b.points>a.points;
     return `<div class="matchup-card">
-      <div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}</div><div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
+      <div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}${tallBoyBadge(a.tallBoy)}</div><div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
       <div class="vs">VS</div>
-      <div class="side right"><div class="mname">${vpBadge(b.vp)} ${b.managers.join(' & ')}</div><div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
+      <div class="side right"><div class="mname">${tallBoyBadge(b.tallBoy)}${vpBadge(b.vp)} ${b.managers.join(' & ')}</div><div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
     </div>`;
   }).join('');
 
