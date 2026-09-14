@@ -156,6 +156,8 @@
   .matchup-card .side.right{text-align:right;}
   .matchup-card .mname{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .matchup-card .mvp{font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;white-space:nowrap;}
+  .matchup-card .mplayed{font-size:10px;color:var(--text-3);margin-top:2px;}
+  .matchup-card .mplayed.all-in{color:var(--accent);}
   .matchup-card .mpts{font-size:16px;font-weight:800;color:var(--text);margin-top:2px;}
   .matchup-card .mpts.leading{color:var(--accent);}
   .matchup-card .vs{font-size:10px;font-weight:700;color:var(--text-3);flex:none;}
@@ -589,6 +591,12 @@ function tallBoyBadge(isLow){
   return '<span class="mvp" style="background:#7a1f1f;color:#ffdede;">🍺 TALL BOY</span>';
 }
 
+function playedLine(m){
+  if(!m.totalStarters) return '';
+  const allIn = m.played >= m.totalStarters;
+  return '<div class="mplayed'+(allIn?' all-in':'')+'">'+m.played+' of '+m.totalStarters+' played</div>';
+}
+
 function rankColor(rank, of){
   if(!of || of<=1) return 'var(--text)';
   const t = (rank-1)/(of-1); // 0 = best, 1 = worst
@@ -690,7 +698,11 @@ async function loadLiveData(){
     for(let w=1; w<=curWeek; w++){
       weekFetches.push(fetch(base+'/matchups/'+w).then(r=>r.json()).catch(()=>[]));
     }
-    const weeks = await Promise.all(weekFetches);
+    const statsUrl = 'https://api.sleeper.app/v1/stats/nfl/regular/'+(state.season||league.season)+'/'+curWeek;
+    const [weeks, weekStats] = await Promise.all([
+      Promise.all(weekFetches),
+      fetch(statsUrl).then(r=>r.json()).catch(()=>({})),
+    ]);
 
     // Victory Points for one week: +3 for winning the matchup, +2 for a
     // top-3 score that week, or +1 for a top-6 score (top-3 supersedes
@@ -761,14 +773,24 @@ async function loadLiveData(){
     if(curWeekList.length){
       tallBoyId = curWeekList.reduce((min,m)=> (m.points||0) < (min.points||0) ? m : min, curWeekList[0]).roster_id;
     }
+    function hasPlayed(pid){
+      const s = weekStats[pid];
+      return !!(s && (s.gp||0) >= 1);
+    }
+
     const byId2 = {};
     curWeekMatchups.forEach(m=>{ (byId2[m.matchup_id] = byId2[m.matchup_id]||[]).push(m); });
-    const matchups = Object.values(byId2).map(pair=>pair.map(m=>({
-      managers: SLEEPER_ROSTERS[m.roster_id] || ['Roster '+m.roster_id],
-      points: m.points || 0,
-      vp: curWeekVP[m.roster_id] || 0,
-      tallBoy: m.roster_id === tallBoyId,
-    })));
+    const matchups = Object.values(byId2).map(pair=>pair.map(m=>{
+      const starters = m.starters || [];
+      return {
+        managers: SLEEPER_ROSTERS[m.roster_id] || ['Roster '+m.roster_id],
+        points: m.points || 0,
+        vp: curWeekVP[m.roster_id] || 0,
+        tallBoy: m.roster_id === tallBoyId,
+        played: starters.filter(hasPlayed).length,
+        totalStarters: starters.length,
+      };
+    }));
 
     live = { status:'ready', season: league.season, week: curWeek, standings, matchups, error:null };
   }catch(e){
@@ -809,14 +831,14 @@ function renderLiveSeason(){
   const matchupCards = live.matchups.map(pair=>{
     if(pair.length<2){
       const a = pair[0];
-      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}${tallBoyBadge(a.tallBoy)}</div><div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
+      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}${tallBoyBadge(a.tallBoy)}</div>${playedLine(a)}<div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
     }
     const [a,b] = pair;
     const aLead = a.points>b.points, bLead = b.points>a.points;
     return `<div class="matchup-card">
-      <div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}${tallBoyBadge(a.tallBoy)}</div><div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
+      <div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}${tallBoyBadge(a.tallBoy)}</div>${playedLine(a)}<div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
       <div class="vs">VS</div>
-      <div class="side right"><div class="mname">${tallBoyBadge(b.tallBoy)}${vpBadge(b.vp)} ${b.managers.join(' & ')}</div><div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
+      <div class="side right"><div class="mname">${tallBoyBadge(b.tallBoy)}${vpBadge(b.vp)} ${b.managers.join(' & ')}</div>${playedLine(b)}<div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
     </div>`;
   }).join('');
 
@@ -835,7 +857,7 @@ function renderLiveSeason(){
   return header + `
     <div class="section-title">Week ${live.week} matchups <span style="font-weight:500;text-transform:none;color:var(--text-3)">VP shown is live, not yet final</span></div>
     ${matchupCards}
-    <div class="section-title">Standings <span style="font-weight:500;text-transform:none;color:var(--text-3)">ranked by Victory Points, through completed weeks</span></div>
+    <div class="section-title">Standings <span style="font-weight:500;text-transform:none;color:var(--text-3)">ranked by VP</span></div>
     <div class="table-wrap">
       <div class="table-scroll">
         <table>
@@ -844,7 +866,7 @@ function renderLiveSeason(){
         </table>
       </div>
     </div>
-    <details class="info-details">
+    <details class="info-details" style="margin-top:10px;">
       <summary>How do Victory Points work?</summary>
       <p>Each week you can earn up to 5 VPs: 3 for winning your matchup, plus 2 more for a top-3 score that week, or 1 more for a top-6 score (the top-3 bonus replaces the top-6 bonus, they don't stack). The standings table only counts VPs from weeks that have finished — the current week's VPs show live next to each matchup above and get added to the table once that week closes.</p>
     </details>
