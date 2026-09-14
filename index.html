@@ -155,6 +155,7 @@
   .matchup-card .side{flex:1;min-width:0;}
   .matchup-card .side.right{text-align:right;}
   .matchup-card .mname{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .matchup-card .mvp{font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;white-space:nowrap;}
   .matchup-card .mpts{font-size:16px;font-weight:800;color:var(--text);margin-top:2px;}
   .matchup-card .mpts.leading{color:var(--accent);}
   .matchup-card .vs{font-size:10px;font-weight:700;color:var(--text-3);flex:none;}
@@ -575,6 +576,14 @@ function attachPillFade(){
   });
 }
 
+function vpBadge(vp){
+  if(!vp) return '';
+  const t = Math.max(0, Math.min(1, (vp-1)/4)); // 1 -> 0 (dull, low-intensity), 5 -> 1 (boldest green)
+  const lo = [40,58,50], hi = [21,150,70];
+  const c = lo.map((v,i)=>Math.round(v+(hi[i]-v)*t));
+  return '<span class="mvp" style="background:rgb('+c.join(',')+');color:#eafff2;">'+vp+' VP</span>';
+}
+
 function rankColor(rank, of){
   if(!of || of<=1) return 'var(--text)';
   const t = (rank-1)/(of-1); // 0 = best, 1 = worst
@@ -678,9 +687,37 @@ async function loadLiveData(){
     }
     const weeks = await Promise.all(weekFetches);
 
+    // Victory Points for one week: +3 for winning the matchup, +2 for a
+    // top-3 score that week, or +1 for a top-6 score (top-3 supersedes
+    // top-6, they don't stack). Returns roster_id -> vp for that week.
+    function weekVP(weekMatchups){
+      const list = (weekMatchups||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
+      const byId = {};
+      list.forEach(m=>{ (byId[m.matchup_id] = byId[m.matchup_id]||[]).push(m); });
+      const winners = new Set();
+      Object.values(byId).forEach(pair=>{
+        if(pair.length<2) return;
+        const [a,b] = pair;
+        if((a.points||0) > (b.points||0)) winners.add(a.roster_id);
+        else if((b.points||0) > (a.points||0)) winners.add(b.roster_id);
+      });
+      const ranked = [...list].sort((x,y)=>(y.points||0)-(x.points||0));
+      const vpMap = {};
+      ranked.forEach((m,i)=>{
+        const rank = i+1;
+        let vp = winners.has(m.roster_id) ? 3 : 0;
+        if(rank<=3) vp += 2;
+        else if(rank<=6) vp += 1;
+        vpMap[m.roster_id] = vp;
+      });
+      return vpMap;
+    }
+
     const totals = {};
-    Object.keys(SLEEPER_ROSTERS).forEach(rid=>{ totals[rid] = {pf:0, pa:0}; });
-    weeks.forEach(weekMatchups=>{
+    const vpTotals = {};
+    Object.keys(SLEEPER_ROSTERS).forEach(rid=>{ totals[rid] = {pf:0, pa:0}; vpTotals[rid] = 0; });
+    weeks.forEach((weekMatchups, idx)=>{
+      const weekNum = idx+1;
       const byId = {};
       (weekMatchups||[]).forEach(m=>{ (byId[m.matchup_id] = byId[m.matchup_id]||[]).push(m); });
       Object.values(byId).forEach(pair=>{
@@ -689,6 +726,14 @@ async function loadLiveData(){
         if(totals[a.roster_id]){ totals[a.roster_id].pf += (a.points||0); totals[a.roster_id].pa += (b.points||0); }
         if(totals[b.roster_id]){ totals[b.roster_id].pf += (b.points||0); totals[b.roster_id].pa += (a.points||0); }
       });
+
+      // Only weeks that have fully closed count toward the VP standings —
+      // the current in-progress week's VPs show live next to the matchups
+      // instead, since they can still move until the week finalizes.
+      if(weekNum < curWeek){
+        const vpMap = weekVP(weekMatchups);
+        Object.keys(vpMap).forEach(rid=>{ vpTotals[rid] = (vpTotals[rid]||0) + vpMap[rid]; });
+      }
     });
 
     const standings = rosters.map(r=>{
@@ -700,15 +745,18 @@ async function loadLiveData(){
         losses: (r.settings && r.settings.losses) || 0,
         ties: (r.settings && r.settings.ties) || 0,
         pf: t.pf, pa: t.pa,
+        vp: vpTotals[r.roster_id] || 0,
       };
-    }).sort((a,b)=> b.wins-a.wins || b.pf-a.pf);
+    }).sort((a,b)=> b.vp-a.vp || b.pf-a.pf);
 
     const curWeekMatchups = weeks[weeks.length-1] || [];
+    const curWeekVP = weekVP(curWeekMatchups);
     const byId2 = {};
     curWeekMatchups.forEach(m=>{ (byId2[m.matchup_id] = byId2[m.matchup_id]||[]).push(m); });
     const matchups = Object.values(byId2).map(pair=>pair.map(m=>({
       managers: SLEEPER_ROSTERS[m.roster_id] || ['Roster '+m.roster_id],
       points: m.points || 0,
+      vp: curWeekVP[m.roster_id] || 0,
     })));
 
     live = { status:'ready', season: league.season, week: curWeek, standings, matchups, error:null };
@@ -750,14 +798,14 @@ function renderLiveSeason(){
   const matchupCards = live.matchups.map(pair=>{
     if(pair.length<2){
       const a = pair[0];
-      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')}</div><div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
+      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}</div><div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
     }
     const [a,b] = pair;
     const aLead = a.points>b.points, bLead = b.points>a.points;
     return `<div class="matchup-card">
-      <div class="side"><div class="mname">${a.managers.join(' & ')}</div><div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
+      <div class="side"><div class="mname">${a.managers.join(' & ')} ${vpBadge(a.vp)}</div><div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
       <div class="vs">VS</div>
-      <div class="side right"><div class="mname">${b.managers.join(' & ')}</div><div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
+      <div class="side right"><div class="mname">${vpBadge(b.vp)} ${b.managers.join(' & ')}</div><div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
     </div>`;
   }).join('');
 
@@ -766,6 +814,7 @@ function renderLiveSeason(){
     return `<tr>
       <td>${i+1}</td>
       <td>${names}</td>
+      <td class="num-cell" style="color:var(--accent);font-weight:800;">${row.vp}</td>
       <td class="${row.wins>=row.losses?'win-txt':'loss-txt'}">${row.wins}-${row.losses}${row.ties?'-'+row.ties:''}</td>
       <td class="num-cell">${fmtPts(row.pf)}</td>
       <td class="num-cell">${fmtPts(row.pa)}</td>
@@ -773,17 +822,21 @@ function renderLiveSeason(){
   }).join('');
 
   return header + `
-    <div class="section-title">Week ${live.week} matchups</div>
+    <div class="section-title">Week ${live.week} matchups <span style="font-weight:500;text-transform:none;color:var(--text-3)">VP shown is live, not yet final</span></div>
     ${matchupCards}
-    <div class="section-title">Live standings</div>
+    <div class="section-title">Standings <span style="font-weight:500;text-transform:none;color:var(--text-3)">ranked by Victory Points, through completed weeks</span></div>
     <div class="table-wrap">
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>Manager</th><th>Record</th><th>PF</th><th>PA</th></tr></thead>
+          <thead><tr><th>#</th><th>Manager</th><th>VP</th><th>Record</th><th>PF</th><th>PA</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
     </div>
+    <details class="info-details">
+      <summary>How do Victory Points work?</summary>
+      <p>Each week you can earn up to 5 VPs: 3 for winning your matchup, plus 2 more for a top-3 score that week, or 1 more for a top-6 score (the top-3 bonus replaces the top-6 bonus, they don't stack). The standings table only counts VPs from weeks that have finished — the current week's VPs show live next to each matchup above and get added to the table once that week closes.</p>
+    </details>
     <div style="height:8px"></div>
   `;
 }
