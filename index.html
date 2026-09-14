@@ -222,6 +222,10 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
     Seasons
   </button>
+  <button class="nitem" data-go="live">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M5.5 5.5a9 9 0 0 0 0 13"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+    This Season
+  </button>
   <button class="nitem" data-go="managers">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
     Managers
@@ -229,10 +233,6 @@
   <button class="nitem" data-go="stats">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="20" x2="4" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="20" y1="20" x2="20" y2="14"/></svg>
     Stats Hub
-  </button>
-  <button class="nitem" data-go="live">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M5.5 5.5a9 9 0 0 0 0 13"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
-    This Season
   </button>
 </nav>
 <script>
@@ -264,9 +264,9 @@ function alphabeticalManagerNames(){
   return Object.keys(DATA.managers).sort((a,b)=>a.localeCompare(b));
 }
 
-const PAGE_ORDER = ['home','seasons','managers','stats','live'];
-let curPage = 'home';
-let curIndex = 0;
+const PAGE_ORDER = ['home','seasons','live','managers','stats'];
+let curPage = 'live';
+let curIndex = PAGE_ORDER.indexOf('live');
 let lastYear = Math.max(...DATA.years);
 let lastManagers = [];
 let lastStat = 'winPct';
@@ -333,10 +333,10 @@ function slideToIndex(targetIdx, targetPage){
 }
 
 function handleHashChange(){
-  const hash = location.hash.replace('#/','') || 'home';
+  const hash = location.hash.replace('#/','') || 'live';
   const parts = hash.split('/');
   let page = parts[0];
-  if(PAGE_ORDER.indexOf(page)===-1) page = 'home';
+  if(PAGE_ORDER.indexOf(page)===-1) page = 'live';
   if(page==='seasons') lastYear = parts[1] ? Number(parts[1]) : lastYear;
   if(page==='managers') lastManagers = parts[1] ? parts[1].split(',').map(decodeURIComponent).filter(n=>DATA.managers[n]) : [];
   if(page==='stats') lastStat = parts[1] && STATS_LIST.some(s=>s.key===parts[1]) ? parts[1] : lastStat;
@@ -379,10 +379,10 @@ function handleHashChange(){
 }
 
 function init(){
-  const hash = location.hash.replace('#/','') || 'home';
+  const hash = location.hash.replace('#/','') || 'live';
   const parts = hash.split('/');
   let page = parts[0];
-  if(PAGE_ORDER.indexOf(page)===-1) page = 'home';
+  if(PAGE_ORDER.indexOf(page)===-1) page = 'live';
   if(page==='seasons') lastYear = parts[1] ? Number(parts[1]) : lastYear;
   if(page==='managers') lastManagers = parts[1] ? parts[1].split(',').map(decodeURIComponent).filter(n=>DATA.managers[n]) : [];
   if(page==='stats') lastStat = parts[1] && STATS_LIST.some(s=>s.key===parts[1]) ? parts[1] : lastStat;
