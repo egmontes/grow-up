@@ -152,20 +152,23 @@
   .toggle-row{display:flex;gap:8px;margin:2px 2px 12px;}
   .toggle-row .pill{flex:1;text-align:center;}
 
-  .beer-card-wrap{perspective:800px;margin-bottom:8px;}
+  .beer-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+  .beer-card-wrap{perspective:800px;}
   .beer-card{
     background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
-    padding:14px 16px;cursor:pointer;transition:transform .22s ease;transform:rotateY(0deg);
+    padding:12px 13px;cursor:pointer;transition:transform .22s ease,background .2s ease;transform:rotateY(0deg);
+    aspect-ratio:1/0.72;display:flex;flex-direction:column;justify-content:center;overflow:hidden;
   }
   .beer-card.flip-mid{transform:rotateY(90deg);}
-  .beer-card:active{background:var(--surface-2);}
-  .bc-name{font-size:14px;font-weight:800;margin-bottom:6px;}
-  .bc-row{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px;color:var(--text-2);}
-  .bc-row .bc-count{font-size:15px;font-weight:800;color:var(--text);}
-  .bc-day{margin-left:auto;flex:none;font-size:9.5px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;background:var(--surface-3);padding:2px 6px;border-radius:5px;}
-  .bc-hint{font-size:9.5px;color:var(--text-3);margin-top:6px;}
-  .bc-reason{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:11.5px;color:var(--text-2);line-height:1.4;}
-  .bc-reason .bc-detail{flex:1;min-width:0;}
+  .beer-card:active{filter:brightness(1.12);}
+  .beer-card-content{overflow-y:auto;max-height:100%;}
+  .bc-name{font-size:13.5px;font-weight:800;margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .bc-row{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11.5px;color:var(--text-2);flex-wrap:wrap;}
+  .bc-row .bc-count{font-size:14px;font-weight:800;color:var(--text);}
+  .bc-day{flex:none;font-size:8.5px;font-weight:800;color:var(--text-2);text-transform:uppercase;letter-spacing:0.5px;background:rgba(0,0,0,0.28);padding:2px 6px;border-radius:5px;}
+  .bc-hint{font-size:8.5px;color:var(--text-3);margin-top:5px;}
+  .bc-reason{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:3px 0;font-size:10.5px;color:var(--text-2);line-height:1.35;}
+  .bc-reason .bc-detail{min-width:0;}
   .matchup-card{
     position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;
@@ -1003,7 +1006,8 @@ async function loadLiveData(){
         if(!isRivalryPair(a.managers, b.managers)) return;
         if(a.points===b.points) return;
         const loser = a.points < b.points ? a : b;
-        rivalryLosers.push({ managers: loser.managers, points: loser.points });
+        const winner = a.points < b.points ? b : a;
+        rivalryLosers.push({ managers: loser.managers, points: loser.points, opponent: winner.managers });
       });
       const individualBeers = [];
       beerPairs.forEach(pair=>{
@@ -1062,10 +1066,19 @@ function groupBeersByManager(beersDue){
     if(!byManager[key]) byManager[key] = { managers, thursday:[], sunday:[] };
     (entry.day==='Thu' ? byManager[key].thursday : byManager[key].sunday).push(entry);
   }
-  if(beersDue.tallBoy) bump(beersDue.tallBoy.managers, { label:'Lowest score', points:beersDue.tallBoy.points, day:'Thu' });
-  beersDue.rivalryLosers.forEach(r=> bump(r.managers, { label:'Lost rivalry', points:r.points, day:'Sun' }));
-  beersDue.individualBeers.forEach(b=> bump(b.managers, { label: beerPlayerName(b.pid), points:b.points, day:'Sun' }));
+  if(beersDue.tallBoy) bump(beersDue.tallBoy.managers, { label:'Lowest score', detail: fmtPts(beersDue.tallBoy.points)+' pts', day:'Thu' });
+  beersDue.rivalryLosers.forEach(r=> bump(r.managers, { label:'Lost rivalry', detail: 'vs '+r.opponent.join(' & '), day:'Sun' }));
+  beersDue.individualBeers.forEach(b=> bump(b.managers, { label: beerPlayerName(b.pid), detail: fmtPts(b.points)+' pts', day:'Sun' }));
   return Object.values(byManager);
+}
+
+// Tints the card a deeper red the more beers/tall boys a manager owes —
+// 1 owed is barely tinted, 4+ is a deep, unmistakable red.
+function beerCardShade(total){
+  const t = Math.max(0, Math.min(1, (total-1)/3));
+  const lo = [30,21,27], hi = [120,28,28];
+  const c = lo.map((v,i)=>Math.round(v+(hi[i]-v)*t));
+  return 'rgb('+c.join(',')+')';
 }
 
 function beerCardFrontHTML(entry){
@@ -1077,7 +1090,7 @@ function beerCardFrontHTML(entry){
 }
 function beerCardBackHTML(entry){
   const rows = [...entry.thursday, ...entry.sunday].map(r=>
-    `<div class="bc-reason"><span class="bc-detail">🍺 ${r.label} · ${fmtPts(r.points)} pts</span><span class="bc-day">${r.day}</span></div>`
+    `<div class="bc-reason"><span class="bc-detail">🍺 ${r.label}${r.detail ? ' · '+r.detail : ''}</span><span class="bc-day">${r.day}</span></div>`
   ).join('');
   return `<div class="bc-name">${entry.managers.join(' & ')}</div>${rows}<div class="bc-hint">Tap to flip back</div>`;
 }
@@ -1090,13 +1103,16 @@ function renderBeersDue(beersDue){
   if(!entries.length){
     return `<div class="section-title">Beers Due <span style="font-weight:500;text-transform:none;color:var(--text-3)">Week ${beersDue.week} results</span></div><div class="empty">No beers owed this week 🎉</div>`;
   }
-  const cards = entries.map((e,idx)=>`
+  const cards = entries.map((e,idx)=>{
+    const shade = beerCardShade(e.thursday.length + e.sunday.length);
+    return `
     <div class="beer-card-wrap">
-      <div class="beer-card" data-beer-idx="${idx}"><div class="beer-card-content">${beerCardFrontHTML(e)}</div></div>
-    </div>`).join('');
+      <div class="beer-card" data-beer-idx="${idx}" style="background:${shade};"><div class="beer-card-content">${beerCardFrontHTML(e)}</div></div>
+    </div>`;
+  }).join('');
   return `
     <div class="section-title">Beers Due <span style="font-weight:500;text-transform:none;color:var(--text-3)">Week ${beersDue.week} results</span></div>
-    ${cards}
+    <div class="beer-grid">${cards}</div>
   `;
 }
 
