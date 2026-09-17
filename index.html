@@ -1126,13 +1126,21 @@ function attachBeerCards(){
     const entry = entries[idx];
     if(!entry) return;
     el.addEventListener('click', ()=>{
+      if(el.classList.contains('flip-mid')) return; // ignore clicks mid-flip
       const content = el.querySelector('.beer-card-content');
-      const flipped = el.classList.toggle('flipped');
+      const flipped = !el.classList.contains('flipped');
       el.classList.add('flip-mid');
-      setTimeout(()=>{
+      // Swap the content only once the card has actually rotated edge-on
+      // (transitionend on the transform), so the visible face never
+      // visibly "pops" mid-rotation — then rotate back with new content.
+      const onHalfway = (e)=>{
+        if(e.target !== el || e.propertyName !== 'transform') return;
+        el.removeEventListener('transitionend', onHalfway);
         content.innerHTML = flipped ? beerCardBackHTML(entry) : beerCardFrontHTML(entry);
+        el.classList.toggle('flipped', flipped);
         el.classList.remove('flip-mid');
-      }, 110);
+      };
+      el.addEventListener('transitionend', onHalfway);
     });
   });
 }
