@@ -1055,20 +1055,21 @@ function attachLiveViewToggle(){
 
 function beerPlayerName(pid){ return PLAYERS ? playerName(pid) : pid; }
 
-// Groups the week's owed beers by manager (team), splitting each into what's
-// due Thursday (lowest-score tall boy) vs Sunday (rivalry-loss tall boy +
-// individual under-1-point beers). Used by both the render and the click
+// Groups the week's owed beers by manager (team) into three buckets: tall
+// boys due Thursday (lowest score), tall boys due Sunday (lost a rivalry —
+// still a tall boy, not a regular beer), and regular beers due Sunday
+// (individual under-1-point players). Used by both the render and the click
 // handler, so card front/back always reflect the same underlying data.
 function groupBeersByManager(beersDue){
   const byManager = {};
-  function bump(managers, entry){
+  function bump(managers, bucket, entry){
     const key = managers.join(' & ');
-    if(!byManager[key]) byManager[key] = { managers, thursday:[], sunday:[] };
-    (entry.day==='Thu' ? byManager[key].thursday : byManager[key].sunday).push(entry);
+    if(!byManager[key]) byManager[key] = { managers, thursdayTallBoys:[], sundayTallBoys:[], sundayBeers:[] };
+    byManager[key][bucket].push(entry);
   }
-  if(beersDue.tallBoy) bump(beersDue.tallBoy.managers, { label:'Lowest score', detail: fmtPts(beersDue.tallBoy.points)+' pts', day:'Thu' });
-  beersDue.rivalryLosers.forEach(r=> bump(r.managers, { label:'Lost rivalry', detail: 'vs '+r.opponent.join(' & '), day:'Sun' }));
-  beersDue.individualBeers.forEach(b=> bump(b.managers, { label: beerPlayerName(b.pid), detail: fmtPts(b.points)+' pts', day:'Sun' }));
+  if(beersDue.tallBoy) bump(beersDue.tallBoy.managers, 'thursdayTallBoys', { label:'Lowest score', detail: fmtPts(beersDue.tallBoy.points)+' pts', day:'Thu', tallBoy:true });
+  beersDue.rivalryLosers.forEach(r=> bump(r.managers, 'sundayTallBoys', { label:'Lost rivalry', detail: 'vs '+r.opponent.join(' & '), day:'Sun', tallBoy:true }));
+  beersDue.individualBeers.forEach(b=> bump(b.managers, 'sundayBeers', { label: beerPlayerName(b.pid), detail: fmtPts(b.points)+' pts', day:'Sun', tallBoy:false }));
   return Object.values(byManager);
 }
 
@@ -1082,15 +1083,16 @@ function beerCardShade(total){
 }
 
 function beerCardFrontHTML(entry){
-  const t = entry.thursday.length, s = entry.sunday.length;
+  const tt = entry.thursdayTallBoys.length, st = entry.sundayTallBoys.length, sb = entry.sundayBeers.length;
   return `<div class="bc-name">${entry.managers.join(' & ')}</div>`
-    + (t ? `<div class="bc-row"><span class="bc-count">${t}</span> tall boy${t>1?'s':''}<span class="bc-day">Thu</span></div>` : '')
-    + (s ? `<div class="bc-row"><span class="bc-count">${s}</span> beer${s>1?'s':''}<span class="bc-day">Sun</span></div>` : '')
+    + (tt ? `<div class="bc-row"><span class="bc-count">${tt}</span> tall boy${tt>1?'s':''}<span class="bc-day">Thu</span></div>` : '')
+    + (st ? `<div class="bc-row"><span class="bc-count">${st}</span> tall boy${st>1?'s':''}<span class="bc-day">Sun</span></div>` : '')
+    + (sb ? `<div class="bc-row"><span class="bc-count">${sb}</span> beer${sb>1?'s':''}<span class="bc-day">Sun</span></div>` : '')
     + `<div class="bc-hint">Tap for details</div>`;
 }
 function beerCardBackHTML(entry){
-  const rows = [...entry.thursday, ...entry.sunday].map(r=>
-    `<div class="bc-reason"><span class="bc-detail">🍺 ${r.label}${r.detail ? ' · '+r.detail : ''}</span><span class="bc-day">${r.day}</span></div>`
+  const rows = [...entry.thursdayTallBoys, ...entry.sundayTallBoys, ...entry.sundayBeers].map(r=>
+    `<div class="bc-reason"><span class="bc-detail">🍺 ${r.tallBoy ? 'Tall boy — ' : ''}${r.label}${r.detail ? ' · '+r.detail : ''}</span><span class="bc-day">${r.day}</span></div>`
   ).join('');
   return `<div class="bc-name">${entry.managers.join(' & ')}</div>${rows}<div class="bc-hint">Tap to flip back</div>`;
 }
@@ -1104,7 +1106,7 @@ function renderBeersDue(beersDue){
     return `<div class="section-title">Beers Due <span style="font-weight:500;text-transform:none;color:var(--text-3)">Week ${beersDue.week} results</span></div><div class="empty">No beers owed this week 🎉</div>`;
   }
   const cards = entries.map((e,idx)=>{
-    const shade = beerCardShade(e.thursday.length + e.sunday.length);
+    const shade = beerCardShade(e.thursdayTallBoys.length + e.sundayTallBoys.length + e.sundayBeers.length);
     return `
     <div class="beer-card-wrap">
       <div class="beer-card" data-beer-idx="${idx}" style="background:${shade};"><div class="beer-card-content">${beerCardFrontHTML(e)}</div></div>
