@@ -1454,22 +1454,28 @@ function renderLiveSeason(){
   `;
 
   // Due This Week defaults to the most recently completed week (matches the
-  // app opening on the live week), but tracks the week selector once the
-  // user has explicitly picked one.
-  const beersWeek = selectedWeek || (live.week - 1);
-  if(beersWeek >= 1 && beersWeek < live.week) ensureWeekStats(beersWeek);
+  // app opening on the live week). Always the real payment cycle — it
+  // deliberately ignores the week selector: "due this week" only means
+  // anything for the actual current week, not whatever past week you're
+  // browsing in Matchups.
+  const beersWeek = live.week - 1;
   const beersDue = computeBeersDueForWeek(beersWeek);
   const dueNotReadyMsg = 'No completed week yet — check back after Week 1 wraps.';
+  const browsingPastWeek = selectedWeek !== null;
 
-  // Loading is always the live, in-progress week — a running preview of what
-  // will lock in as "Due This Week" once it closes. Held back until someone
-  // has actually scored, same as the matchup-card badges.
-  const liveWeekScoringStarted = live.matchups.some(pair => pair.some(side => side.points > 0));
-  const loadingBeersDue = liveWeekScoringStarted ? computeBeersDueForWeek(live.week, true) : null;
+  // Loading follows the week selector, same as Matchups — it's the beer
+  // tally for whichever week you're browsing: a live, still-moving preview
+  // if that's the current week, or the finalized tally if it's already
+  // closed. Held back until someone's actually scored that week.
+  const loadingBeersDue = scoringStarted ? computeBeersDueForWeek(wk, true) : null;
   const loadingNotReadyMsg = "Scores haven't started yet — check back once games kick off.";
 
-  const topSection = liveView==='beers' ? renderBeersDue(beersDue, dueNotReadyMsg, false)
-    : liveView==='loading' ? renderBeersDue(loadingBeersDue, loadingNotReadyMsg, true)
+  if(liveView==='beers' && browsingPastWeek) renderedBeerEntries = [];
+  const topSection = liveView==='beers'
+    ? (browsingPastWeek
+        ? `<div class="section-title">Due This Week</div><div class="empty">Not applicable while browsing Week ${wk} — Due This Week always reflects the most recently completed week. Switch the selector back to Live to see it.</div>`
+        : renderBeersDue(beersDue, dueNotReadyMsg, false))
+    : liveView==='loading' ? renderBeersDue(loadingBeersDue, loadingNotReadyMsg, isCurrentWeek)
     : `
     <div class="section-title">Week ${wk} matchups <span style="font-weight:500;text-transform:none;color:var(--text-3)">${isCurrentWeek ? 'VP shown is live, not yet final' : 'Final results'}</span></div>
     ${matchupCards}
