@@ -138,6 +138,9 @@
     text-align:left;padding:9px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;
     color:var(--text-3);background:var(--surface-2);white-space:nowrap;font-weight:700;
   }
+  th.sortable{cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  th.sortable:active{background:var(--surface-3);}
+  th.sortable.active{color:var(--accent);}
   td{padding:9px 8px;border-top:1px solid var(--border);white-space:nowrap;font-weight:600;}
   tr.me td{background:rgba(245,165,36,0.06);}
   .num-cell{color:var(--text-2);font-weight:500;}
@@ -367,6 +370,7 @@ let selectedWeek = null; // null = follow the current/live week
 let weekStatsCache = {};
 let weekStatsLoading = new Set();
 let renderedMatchups = []; // the matchup pairs currently on screen (may be a past week), for the drawer click handler
+let standingsSort = { key:'vp', dir:'desc' };
 
 const viewportEl = document.getElementById('viewport');
 const trackEl = document.getElementById('track');
@@ -413,6 +417,7 @@ function paintPanels(){
   attachLiveViewToggle();
   attachBeerCards();
   attachWeekSelect();
+  attachStandingsSort();
   setActiveNav(curPage);
   if(curPage==='managers' && lastManagers.length){
     const detail = panelCur.querySelector('#manager-detail');
@@ -468,6 +473,7 @@ function handleHashChange(){
     attachLiveViewToggle();
     attachBeerCards();
     attachWeekSelect();
+    attachStandingsSort();
     if(curPage==='managers' && lastManagers.length){
       const detail = panelCur.querySelector('#manager-detail');
       if(detail && detail.scrollIntoView){
@@ -1087,6 +1093,78 @@ function computeBeersDueForWeek(weekNum){
   return { week: weekNum, tallBoys, rivalryLosers, individualBeers };
 }
 
+// Season-long ounces owed per manager, for the standings table: a tall boy
+// (lowest score, or a lost rivalry) is 16oz, a regular beer (a starter who
+// played and scored under 1 point) is 12oz. Only counts CLOSED weeks — the
+// in-progress week hasn't generated any beers yet.
+const OZ_TALL_BOY = 16;
+const OZ_BEER = 12;
+function seasonOzTotals(){
+  const totals = {};
+  function add(managers, oz){
+    const key = managers.join(' & ');
+    totals[key] = (totals[key]||0) + oz;
+  }
+  for(let w=1; w<live.week; w++){
+    const bd = computeBeersDueForWeek(w);
+    if(!bd) continue;
+    bd.tallBoys.forEach(t=>add(t.managers, OZ_TALL_BOY));
+    bd.rivalryLosers.forEach(r=>add(r.managers, OZ_TALL_BOY));
+    bd.individualBeers.forEach(b=>add(b.managers, OZ_BEER));
+  }
+  return totals;
+}
+
+// Sortable standings table: click a header to sort by it, click again to
+// flip direction. "#" (rank) isn't sortable — it just reflects the current
+// display order.
+const STANDINGS_COLUMNS = [
+  { key:'rank', label:'#', sortable:false },
+  { key:'manager', label:'Manager', sortable:true, dir:'asc' },
+  { key:'vp', label:'VP', sortable:true, dir:'desc' },
+  { key:'record', label:'Record', sortable:true, dir:'desc' },
+  { key:'oz', label:'🍺 oz', sortable:true, dir:'desc' },
+  { key:'pf', label:'PF', sortable:true, dir:'desc' },
+  { key:'pa', label:'PA', sortable:true, dir:'desc' },
+];
+function standingsSortValue(row, key){
+  if(key==='manager') return row.managers.join(' & ');
+  if(key==='record') return row.wins - row.losses;
+  return row[key];
+}
+function sortStandingsRows(rows){
+  const col = STANDINGS_COLUMNS.find(c=>c.key===standingsSort.key);
+  if(!col || !col.sortable) return rows;
+  return [...rows].sort((a,b)=>{
+    const av = standingsSortValue(a, standingsSort.key), bv = standingsSortValue(b, standingsSort.key);
+    if(typeof av === 'string') return standingsSort.dir==='asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    return standingsSort.dir==='asc' ? av-bv : bv-av;
+  });
+}
+function standingsHeaderHTML(){
+  return STANDINGS_COLUMNS.map(col=>{
+    if(!col.sortable) return '<th>'+col.label+'</th>';
+    const active = standingsSort.key===col.key;
+    const arrow = active ? (standingsSort.dir==='asc' ? ' ▲' : ' ▼') : '';
+    return '<th class="sortable'+(active?' active':'')+'" data-sort-key="'+col.key+'">'+col.label+arrow+'</th>';
+  }).join('');
+}
+function attachStandingsSort(){
+  document.querySelectorAll('th[data-sort-key]').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const key = th.dataset.sortKey;
+      const col = STANDINGS_COLUMNS.find(c=>c.key===key);
+      if(standingsSort.key===key){
+        standingsSort.dir = standingsSort.dir==='asc' ? 'desc' : 'asc';
+      } else {
+        standingsSort.key = key;
+        standingsSort.dir = col.dir || 'desc';
+      }
+      refreshLiveIfVisible();
+    });
+  });
+}
+
 async function loadLiveData(){
   if(live.status==='loading' || live.status==='ready') return;
   live.status = 'loading';
@@ -1099,17 +1177,19 @@ async function loadLiveData(){
       fetch('https://api.sleeper.app/v1/state/nfl').then(r=>r.json()),
     ]);
     const curWeek = Math.max(1, state.week || 1);
-    const beerWeek = curWeek - 1;
+    const seasonForStats = state.season || league.season;
     const weekFetches = [];
+    const statsFetches = [];
     for(let w=1; w<=curWeek; w++){
       weekFetches.push(fetch(base+'/matchups/'+w).then(r=>r.json()).catch(()=>[]));
+      // Fetch every week's player stats up front (not just the current and
+      // most-recently-completed weeks) — needed to total up season-long
+      // beer ounces for the standings column.
+      statsFetches.push(fetch('https://api.sleeper.app/v1/stats/nfl/regular/'+seasonForStats+'/'+w).then(r=>r.json()).catch(()=>({})));
     }
-    const statsUrl = 'https://api.sleeper.app/v1/stats/nfl/regular/'+(state.season||league.season)+'/'+curWeek;
-    const beerStatsUrl = beerWeek>=1 ? 'https://api.sleeper.app/v1/stats/nfl/regular/'+(state.season||league.season)+'/'+beerWeek : null;
-    const [weeks, weekStats, beerWeekStats] = await Promise.all([
+    const [weeks, weekStatsAll] = await Promise.all([
       Promise.all(weekFetches),
-      fetch(statsUrl).then(r=>r.json()).catch(()=>({})),
-      beerStatsUrl ? fetch(beerStatsUrl).then(r=>r.json()).catch(()=>({})) : Promise.resolve({}),
+      Promise.all(statsFetches),
     ]);
 
     const totals = {};
@@ -1149,14 +1229,13 @@ async function loadLiveData(){
     }).sort((a,b)=> b.vp-a.vp || b.pf-a.pf);
 
     const curWeekMatchups = weeks[weeks.length-1] || [];
-    const matchups = buildWeekMatchups(curWeekMatchups, weekStats);
+    const matchups = buildWeekMatchups(curWeekMatchups, weekStatsAll[weekStatsAll.length-1] || {});
 
     live = { status:'ready', season: league.season, week: curWeek, standings, matchups, weeksRaw: weeks, error:null };
-    // Seed the lazy per-week stats cache with what we already fetched, so
-    // switching to the current or most-recently-completed week from the
-    // selector doesn't trigger a redundant re-fetch.
-    weekStatsCache = { [curWeek]: weekStats };
-    if(beerWeek >= 1) weekStatsCache[beerWeek] = beerWeekStats;
+    // Every week's stats were fetched up front (see above), so seed the full
+    // cache — no lazy re-fetching needed when browsing past weeks anymore.
+    weekStatsCache = {};
+    weekStatsAll.forEach((s,idx)=>{ weekStatsCache[idx+1] = s || {}; });
     weekStatsLoading = new Set();
     if(selectedWeek && selectedWeek > curWeek) selectedWeek = null;
   }catch(e){
@@ -1175,6 +1254,7 @@ function refreshLiveIfVisible(){
     attachLiveViewToggle();
     attachBeerCards();
     attachWeekSelect();
+    attachStandingsSort();
   }
 }
 
@@ -1380,24 +1460,27 @@ function renderLiveSeason(){
     ${matchupCards}
   `;
 
-  const rows = live.standings.map((row,i)=>{
+  const ozTotals = seasonOzTotals();
+  const standingsRows = sortStandingsRows(live.standings.map(row=>({ ...row, oz: ozTotals[row.managers.join(' & ')] || 0 })));
+  const rows = standingsRows.map((row,i)=>{
     const names = row.managers.map(m=>`<a href="#/managers/${encodeURIComponent(m)}" style="color:inherit">${m}</a>`).join(' <span style="color:var(--text-3)">&amp;</span> ');
     return `<tr>
       <td>${i+1}</td>
       <td>${names}</td>
       <td class="num-cell" style="color:var(--accent);font-weight:800;">${row.vp}</td>
       <td class="${row.wins>=row.losses?'win-txt':'loss-txt'}">${row.wins}-${row.losses}${row.ties?'-'+row.ties:''}</td>
+      <td class="num-cell">${row.oz}</td>
       <td class="num-cell">${fmtPts(row.pf)}</td>
       <td class="num-cell">${fmtPts(row.pa)}</td>
     </tr>`;
   }).join('');
 
   return header + toggleRow + topSection + `
-    <div class="section-title">Standings <span style="font-weight:500;text-transform:none;color:var(--text-3)">ranked by VP</span></div>
+    <div class="section-title">Standings <span style="font-weight:500;text-transform:none;color:var(--text-3)">tap a column to sort</span></div>
     <div class="table-wrap">
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>Manager</th><th>VP</th><th>Record</th><th>PF</th><th>PA</th></tr></thead>
+          <thead><tr>${standingsHeaderHTML()}</tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
