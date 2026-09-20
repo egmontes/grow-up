@@ -959,9 +959,11 @@ async function loadLiveData(){
         return !!(s && (s.gp||0) >= 1);
       }
       const list = (weekMatchupsRaw||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
-      let tallBoyId = null;
+      // If multiple rosters are tied for the lowest score, they ALL get the
+      // Tall Boy badge — no arbitrary tiebreak.
+      let lowestPoints = null;
       if(list.length){
-        tallBoyId = list.reduce((min,m)=> (m.points||0) < (min.points||0) ? m : min, list[0]).roster_id;
+        lowestPoints = list.reduce((min,m)=> (m.points||0) < min ? (m.points||0) : min, list[0].points||0);
       }
       const vpMap = weekVP(weekMatchupsRaw);
       const byId = {};
@@ -972,7 +974,7 @@ async function loadLiveData(){
           managers: SLEEPER_ROSTERS[m.roster_id] || ['Roster '+m.roster_id],
           points: m.points || 0,
           vp: vpMap[m.roster_id] || 0,
-          tallBoy: m.roster_id === tallBoyId,
+          tallBoy: lowestPoints !== null && (m.points||0) === lowestPoints,
           played: starters.filter(hasPlayedFor).length,
           totalStarters: starters.length,
           lineup: starters.map(pid=>({
@@ -994,10 +996,12 @@ async function loadLiveData(){
     if(beerWeek >= 1){
       const beerPairs = buildWeekMatchups(weeks[beerWeek-1] || [], beerWeekStats);
       const flat = beerPairs.flat();
-      let tallBoy = null;
+      // If multiple managers tied for the lowest score, they ALL owe the
+      // Thursday tall boy — no arbitrary tiebreak.
+      let tallBoys = [];
       if(flat.length){
-        const low = flat.reduce((min,m)=> m.points < min.points ? m : min, flat[0]);
-        tallBoy = { managers: low.managers, points: low.points };
+        const lowestPoints = flat.reduce((min,m)=> m.points < min ? m.points : min, flat[0].points);
+        tallBoys = flat.filter(m=>m.points===lowestPoints).map(m=>({ managers: m.managers, points: m.points }));
       }
       const rivalryLosers = [];
       beerPairs.forEach(pair=>{
@@ -1017,7 +1021,7 @@ async function loadLiveData(){
           });
         });
       });
-      beersDue = { week: beerWeek, tallBoy, rivalryLosers, individualBeers };
+      beersDue = { week: beerWeek, tallBoys, rivalryLosers, individualBeers };
     }
 
     live = { status:'ready', season: league.season, week: curWeek, standings, matchups, beersDue, error:null };
@@ -1067,7 +1071,7 @@ function groupBeersByManager(beersDue){
     if(!byManager[key]) byManager[key] = { managers, thursdayTallBoys:[], sundayTallBoys:[], sundayBeers:[] };
     byManager[key][bucket].push(entry);
   }
-  if(beersDue.tallBoy) bump(beersDue.tallBoy.managers, 'thursdayTallBoys', { label:'Lowest score', detail: fmtPts(beersDue.tallBoy.points)+' pts', day:'Thu', tallBoy:true });
+  beersDue.tallBoys.forEach(t=> bump(t.managers, 'thursdayTallBoys', { label:'Lowest score', detail: fmtPts(t.points)+' pts', day:'Thu', tallBoy:true }));
   beersDue.rivalryLosers.forEach(r=> bump(r.managers, 'sundayTallBoys', { label:'Lost rivalry', detail: 'vs '+r.opponent.join(' & '), day:'Sun', tallBoy:true }));
   beersDue.individualBeers.forEach(b=> bump(b.managers, 'sundayBeers', { label: beerPlayerName(b.pid), detail: fmtPts(b.points)+' pts', day:'Sun', tallBoy:false }));
   return Object.values(byManager);
