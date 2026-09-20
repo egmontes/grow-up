@@ -152,6 +152,11 @@
   .toggle-row{display:flex;gap:8px;margin:2px 2px 12px;}
   .toggle-row .pill{flex:1;text-align:center;}
 
+  .week-select{
+    flex:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border);
+    border-radius:8px;font-size:12px;font-weight:700;padding:7px 10px;font-family:inherit;
+  }
+
   .beer-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;align-items:start;}
   .beer-card-wrap{perspective:800px;min-width:0;min-height:0;}
   .beer-card{
@@ -358,6 +363,10 @@ let lastYear = Math.max(...DATA.years);
 let lastManagers = [];
 let lastStat = 'winPct';
 let liveView = 'matchups';
+let selectedWeek = null; // null = follow the current/live week
+let weekStatsCache = {};
+let weekStatsLoading = new Set();
+let renderedMatchups = []; // the matchup pairs currently on screen (may be a past week), for the drawer click handler
 
 const viewportEl = document.getElementById('viewport');
 const trackEl = document.getElementById('track');
@@ -403,6 +412,7 @@ function paintPanels(){
   attachMatchupCards();
   attachLiveViewToggle();
   attachBeerCards();
+  attachWeekSelect();
   setActiveNav(curPage);
   if(curPage==='managers' && lastManagers.length){
     const detail = panelCur.querySelector('#manager-detail');
@@ -457,6 +467,7 @@ function handleHashChange(){
     attachMatchupCards();
     attachLiveViewToggle();
     attachBeerCards();
+    attachWeekSelect();
     if(curPage==='managers' && lastManagers.length){
       const detail = panelCur.querySelector('#manager-detail');
       if(detail && detail.scrollIntoView){
@@ -852,7 +863,7 @@ function attachMatchupCards(){
   document.querySelectorAll('.matchup-card[data-matchup-idx]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const idx = Number(el.dataset.matchupIdx);
-      if(live.matchups && live.matchups[idx]) openMatchupDrawer(live.matchups[idx]);
+      if(renderedMatchups && renderedMatchups[idx]) openMatchupDrawer(renderedMatchups[idx]);
     });
   });
 }
@@ -950,7 +961,131 @@ const RIVAL_PAIRS = [
 function isRivalryPair(managersA, managersB){
   return RIVAL_PAIRS.some(([x,y])=> (managersA.includes(x)&&managersB.includes(y)) || (managersA.includes(y)&&managersB.includes(x)) );
 }
-let live = { status:'idle', season:null, week:null, standings:null, matchups:null, beersDue:null, error:null };
+let live = { status:'idle', season:null, week:null, standings:null, matchups:null, weeksRaw:null, error:null };
+
+// Victory Points for one week: +3 for winning the matchup, +2 for a top-3
+// score that week, or +1 for a top-6 score (top-3 supersedes top-6, they
+// don't stack). Returns roster_id -> vp for that week.
+function weekVP(weekMatchups){
+  const list = (weekMatchups||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
+  const byId = {};
+  list.forEach(m=>{ (byId[m.matchup_id] = byId[m.matchup_id]||[]).push(m); });
+  const winners = new Set();
+  Object.values(byId).forEach(pair=>{
+    if(pair.length<2) return;
+    const [a,b] = pair;
+    if((a.points||0) > (b.points||0)) winners.add(a.roster_id);
+    else if((b.points||0) > (a.points||0)) winners.add(b.roster_id);
+  });
+  const ranked = [...list].sort((x,y)=>(y.points||0)-(x.points||0));
+  const vpMap = {};
+  ranked.forEach((m,i)=>{
+    const rank = i+1;
+    let vp = winners.has(m.roster_id) ? 3 : 0;
+    if(rank<=3) vp += 2;
+    else if(rank<=6) vp += 1;
+    vpMap[m.roster_id] = vp;
+  });
+  return vpMap;
+}
+
+// Builds the per-pair matchup snapshot (points, VP, tall boy, lineup with
+// per-player played/points) for one week's raw matchup data. Reused for the
+// current live week, the most recently completed week (Beers Due), and any
+// past week picked from the week selector.
+function buildWeekMatchups(weekMatchupsRaw, weekStatsForWeek){
+  function hasPlayedFor(pid){
+    const s = weekStatsForWeek[pid];
+    return !!(s && (s.gp||0) >= 1);
+  }
+  const list = (weekMatchupsRaw||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
+  // If multiple rosters are tied for the lowest score, they ALL get the
+  // Tall Boy badge — no arbitrary tiebreak.
+  let lowestPoints = null;
+  if(list.length){
+    lowestPoints = list.reduce((min,m)=> (m.points||0) < min ? (m.points||0) : min, list[0].points||0);
+  }
+  const vpMap = weekVP(weekMatchupsRaw);
+  const byId = {};
+  (weekMatchupsRaw||[]).forEach(m=>{ (byId[m.matchup_id] = byId[m.matchup_id]||[]).push(m); });
+  return Object.values(byId).map(pair=>pair.map(m=>{
+    const starters = m.starters || [];
+    return {
+      managers: SLEEPER_ROSTERS[m.roster_id] || ['Roster '+m.roster_id],
+      points: m.points || 0,
+      vp: vpMap[m.roster_id] || 0,
+      tallBoy: lowestPoints !== null && (m.points||0) === lowestPoints,
+      played: starters.filter(hasPlayedFor).length,
+      totalStarters: starters.length,
+      lineup: starters.map(pid=>({
+        pid: pid,
+        points: (m.players_points && m.players_points[pid]) || 0,
+        played: hasPlayedFor(pid),
+      })),
+    };
+  }));
+}
+
+// Returns the built matchup pairs for any fetched week (current or past).
+// Past weeks reuse the raw data already pulled during loadLiveData, only
+// re-fetching per-player stats lazily (see ensureWeekStats) if needed.
+function getMatchupsForWeek(weekNum){
+  if(!live.weeksRaw) return [];
+  if(weekNum === live.week) return live.matchups;
+  const raw = live.weeksRaw[weekNum-1] || [];
+  return buildWeekMatchups(raw, weekStatsCache[weekNum] || {});
+}
+function effectiveWeek(){
+  return live.status==='ready' ? (selectedWeek || live.week) : null;
+}
+// Lazily fetches per-player stats for a past week (used for "played" status
+// and beer badges in that week's lineup drawer) the first time it's viewed.
+function ensureWeekStats(weekNum){
+  if(!live.season || weekNum === live.week) return;
+  if(weekStatsCache[weekNum] || weekStatsLoading.has(weekNum)) return;
+  weekStatsLoading.add(weekNum);
+  const url = 'https://api.sleeper.app/v1/stats/nfl/regular/'+live.season+'/'+weekNum;
+  fetch(url).then(r=>r.json()).catch(()=>({})).then(data=>{
+    weekStatsCache[weekNum] = data;
+    weekStatsLoading.delete(weekNum);
+    if(effectiveWeek()===weekNum) refreshLiveIfVisible();
+  });
+}
+
+// Computes the beers/tall boys generated BY a given week's results. Returns
+// null if that week hasn't finished yet (results aren't final until a week
+// closes), so there's nothing to owe from it yet.
+function computeBeersDueForWeek(weekNum){
+  if(!live.weeksRaw || weekNum < 1 || weekNum >= live.week) return null;
+  const beerPairs = getMatchupsForWeek(weekNum);
+  const flat = beerPairs.flat();
+  // If multiple managers tied for the lowest score, they ALL owe the
+  // Thursday tall boy — no arbitrary tiebreak.
+  let tallBoys = [];
+  if(flat.length){
+    const lowestPoints = flat.reduce((min,m)=> m.points < min ? m.points : min, flat[0].points);
+    tallBoys = flat.filter(m=>m.points===lowestPoints).map(m=>({ managers: m.managers, points: m.points }));
+  }
+  const rivalryLosers = [];
+  beerPairs.forEach(pair=>{
+    if(pair.length<2) return;
+    const [a,b] = pair;
+    if(!isRivalryPair(a.managers, b.managers)) return;
+    if(a.points===b.points) return;
+    const loser = a.points < b.points ? a : b;
+    const winner = a.points < b.points ? b : a;
+    rivalryLosers.push({ managers: loser.managers, points: loser.points, opponent: winner.managers });
+  });
+  const individualBeers = [];
+  beerPairs.forEach(pair=>{
+    pair.forEach(side=>{
+      side.lineup.forEach(l=>{
+        if(l.played && l.points < 1) individualBeers.push({ managers: side.managers, pid: l.pid, points: l.points });
+      });
+    });
+  });
+  return { week: weekNum, tallBoys, rivalryLosers, individualBeers };
+}
 
 async function loadLiveData(){
   if(live.status==='loading' || live.status==='ready') return;
@@ -976,32 +1111,6 @@ async function loadLiveData(){
       fetch(statsUrl).then(r=>r.json()).catch(()=>({})),
       beerStatsUrl ? fetch(beerStatsUrl).then(r=>r.json()).catch(()=>({})) : Promise.resolve({}),
     ]);
-
-    // Victory Points for one week: +3 for winning the matchup, +2 for a
-    // top-3 score that week, or +1 for a top-6 score (top-3 supersedes
-    // top-6, they don't stack). Returns roster_id -> vp for that week.
-    function weekVP(weekMatchups){
-      const list = (weekMatchups||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
-      const byId = {};
-      list.forEach(m=>{ (byId[m.matchup_id] = byId[m.matchup_id]||[]).push(m); });
-      const winners = new Set();
-      Object.values(byId).forEach(pair=>{
-        if(pair.length<2) return;
-        const [a,b] = pair;
-        if((a.points||0) > (b.points||0)) winners.add(a.roster_id);
-        else if((b.points||0) > (a.points||0)) winners.add(b.roster_id);
-      });
-      const ranked = [...list].sort((x,y)=>(y.points||0)-(x.points||0));
-      const vpMap = {};
-      ranked.forEach((m,i)=>{
-        const rank = i+1;
-        let vp = winners.has(m.roster_id) ? 3 : 0;
-        if(rank<=3) vp += 2;
-        else if(rank<=6) vp += 1;
-        vpMap[m.roster_id] = vp;
-      });
-      return vpMap;
-    }
 
     const totals = {};
     const vpTotals = {};
@@ -1039,84 +1148,19 @@ async function loadLiveData(){
       };
     }).sort((a,b)=> b.vp-a.vp || b.pf-a.pf);
 
-    // Builds the per-pair matchup snapshot (points, VP, tall boy, lineup with
-    // per-player played/points) for one week's raw matchup data. Reused for
-    // both the current live week and the most recently completed week (used
-    // by the Beers Due view).
-    function buildWeekMatchups(weekMatchupsRaw, weekStatsForWeek){
-      function hasPlayedFor(pid){
-        const s = weekStatsForWeek[pid];
-        return !!(s && (s.gp||0) >= 1);
-      }
-      const list = (weekMatchupsRaw||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
-      // If multiple rosters are tied for the lowest score, they ALL get the
-      // Tall Boy badge — no arbitrary tiebreak.
-      let lowestPoints = null;
-      if(list.length){
-        lowestPoints = list.reduce((min,m)=> (m.points||0) < min ? (m.points||0) : min, list[0].points||0);
-      }
-      const vpMap = weekVP(weekMatchupsRaw);
-      const byId = {};
-      (weekMatchupsRaw||[]).forEach(m=>{ (byId[m.matchup_id] = byId[m.matchup_id]||[]).push(m); });
-      return Object.values(byId).map(pair=>pair.map(m=>{
-        const starters = m.starters || [];
-        return {
-          managers: SLEEPER_ROSTERS[m.roster_id] || ['Roster '+m.roster_id],
-          points: m.points || 0,
-          vp: vpMap[m.roster_id] || 0,
-          tallBoy: lowestPoints !== null && (m.points||0) === lowestPoints,
-          played: starters.filter(hasPlayedFor).length,
-          totalStarters: starters.length,
-          lineup: starters.map(pid=>({
-            pid: pid,
-            points: (m.players_points && m.players_points[pid]) || 0,
-            played: hasPlayedFor(pid),
-          })),
-        };
-      }));
-    }
-
     const curWeekMatchups = weeks[weeks.length-1] || [];
     const matchups = buildWeekMatchups(curWeekMatchups, weekStats);
 
-    // Beers Due is based on the most recently CLOSED week (curWeek - 1) —
-    // results aren't final until that week ends, so week 1's beers appear
-    // only once week 2 has started.
-    let beersDue = null;
-    if(beerWeek >= 1){
-      const beerPairs = buildWeekMatchups(weeks[beerWeek-1] || [], beerWeekStats);
-      const flat = beerPairs.flat();
-      // If multiple managers tied for the lowest score, they ALL owe the
-      // Thursday tall boy — no arbitrary tiebreak.
-      let tallBoys = [];
-      if(flat.length){
-        const lowestPoints = flat.reduce((min,m)=> m.points < min ? m.points : min, flat[0].points);
-        tallBoys = flat.filter(m=>m.points===lowestPoints).map(m=>({ managers: m.managers, points: m.points }));
-      }
-      const rivalryLosers = [];
-      beerPairs.forEach(pair=>{
-        if(pair.length<2) return;
-        const [a,b] = pair;
-        if(!isRivalryPair(a.managers, b.managers)) return;
-        if(a.points===b.points) return;
-        const loser = a.points < b.points ? a : b;
-        const winner = a.points < b.points ? b : a;
-        rivalryLosers.push({ managers: loser.managers, points: loser.points, opponent: winner.managers });
-      });
-      const individualBeers = [];
-      beerPairs.forEach(pair=>{
-        pair.forEach(side=>{
-          side.lineup.forEach(l=>{
-            if(l.played && l.points < 1) individualBeers.push({ managers: side.managers, pid: l.pid, points: l.points });
-          });
-        });
-      });
-      beersDue = { week: beerWeek, tallBoys, rivalryLosers, individualBeers };
-    }
-
-    live = { status:'ready', season: league.season, week: curWeek, standings, matchups, beersDue, error:null };
+    live = { status:'ready', season: league.season, week: curWeek, standings, matchups, weeksRaw: weeks, error:null };
+    // Seed the lazy per-week stats cache with what we already fetched, so
+    // switching to the current or most-recently-completed week from the
+    // selector doesn't trigger a redundant re-fetch.
+    weekStatsCache = { [curWeek]: weekStats };
+    if(beerWeek >= 1) weekStatsCache[beerWeek] = beerWeekStats;
+    weekStatsLoading = new Set();
+    if(selectedWeek && selectedWeek > curWeek) selectedWeek = null;
   }catch(e){
-    live = { status:'error', season:null, week:null, standings:null, matchups:null, beersDue:null, error:(e && e.message) || String(e) };
+    live = { status:'error', season:null, week:null, standings:null, matchups:null, weeksRaw:null, error:(e && e.message) || String(e) };
   }
   refreshLiveIfVisible();
 }
@@ -1130,7 +1174,29 @@ function refreshLiveIfVisible(){
     attachMatchupCards();
     attachLiveViewToggle();
     attachBeerCards();
+    attachWeekSelect();
   }
+}
+
+function weekSelectHTML(){
+  if(live.status!=='ready') return '';
+  const wk = effectiveWeek();
+  let opts = '';
+  for(let w=live.week; w>=1; w--){
+    const label = w===live.week ? 'Week '+w+' (Live)' : 'Week '+w;
+    opts += '<option value="'+w+'"'+(w===wk?' selected':'')+'>'+label+'</option>';
+  }
+  return '<select class="week-select" id="week-select" aria-label="Select week">'+opts+'</select>';
+}
+function attachWeekSelect(){
+  const sel = document.getElementById('week-select');
+  if(!sel) return;
+  sel.addEventListener('change', ()=>{
+    const w = Number(sel.value);
+    selectedWeek = (w === live.week) ? null : w;
+    ensureWeekStats(w);
+    refreshLiveIfVisible();
+  });
 }
 
 function attachLiveViewToggle(){
@@ -1191,9 +1257,12 @@ function beerCardBackHTML(entry){
   return `<div class="bc-name">${entry.managers.join(' & ')}</div>${rows}<div class="bc-hint">Tap to flip back</div>`;
 }
 
-function renderBeersDue(beersDue){
+function renderBeersDue(beersDue, forWeek){
   if(!beersDue){
-    return `<div class="section-title">Beers Due</div><div class="empty">No completed week yet — check back after Week 1 wraps.</div>`;
+    const msg = forWeek && forWeek>=1
+      ? 'Week '+forWeek+' is still in progress — beers are tallied once it wraps.'
+      : 'No completed week yet — check back after Week 1 wraps.';
+    return `<div class="section-title">Beers Due</div><div class="empty">${msg}</div>`;
   }
   const entries = groupBeersByManager(beersDue);
   if(!entries.length){
@@ -1251,6 +1320,7 @@ function renderLiveSeason(){
         <span class="title">${live.season || '2026'} <span class="tag live"><span class="dot"></span>LIVE</span>${weekIsRivalryWeek ? ' <span class="tag rivalry">🔥 RIVALRY WEEK</span>' : ''}</span>
         <span class="sub">${live.status==='ready' ? 'Week '+live.week+' · via Sleeper' : live.status==='error' ? 'Live data unavailable' : 'Loading live data from Sleeper…'}</span>
       </div>
+      ${weekSelectHTML()}
     </div>
   `;
 
@@ -1261,15 +1331,22 @@ function renderLiveSeason(){
     return header + `<div class="empty">Couldn't reach Sleeper (${live.error||'network error'}).<br><a href="#" id="live-retry" style="color:var(--accent);font-weight:700;">Tap to retry</a></div>`;
   }
 
+  const wk = effectiveWeek();
+  const isCurrentWeek = wk === live.week;
+  const displayedMatchups = getMatchupsForWeek(wk);
+  renderedMatchups = displayedMatchups;
+  if(!isCurrentWeek) ensureWeekStats(wk);
+
   // Don't show VP / Tall Boy badges until someone's actually scored —
   // before kickoff every matchup sits at 0-0, so the badges (especially
-  // "lowest score") would be meaningless noise.
-  const scoringStarted = live.matchups.some(pair => pair.some(side => side.points > 0));
+  // "lowest score") would be meaningless noise. Always true for a past,
+  // already-completed week.
+  const scoringStarted = displayedMatchups.some(pair => pair.some(side => side.points > 0));
 
-  const matchupCards = live.matchups.map((pair, idx)=>{
+  const matchupCards = displayedMatchups.map((pair, idx)=>{
     if(pair.length<2){
       const a = pair[0];
-      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')} ${scoringStarted?vpBadge(a.vp):''}${scoringStarted?tallBoyBadge(a.tallBoy):''}</div>${playedLine(a)}<div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
+      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')} ${scoringStarted?vpBadge(a.vp):''}${scoringStarted?tallBoyBadge(a.tallBoy):''}</div>${isCurrentWeek?playedLine(a):''}<div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
     }
     const [a,b] = pair;
     const rivalry = isRivalryPair(a.managers, b.managers);
@@ -1277,9 +1354,9 @@ function renderLiveSeason(){
     const aLead = a.points>b.points, bLead = b.points>a.points;
     return `<div class="matchup-card clickable${rivalry?' rivalry':''}" data-matchup-idx="${idx}">
       ${rivalryBanner}
-      <div class="side"><div class="mname">${a.managers.join(' & ')} ${scoringStarted?vpBadge(a.vp):''}${scoringStarted?tallBoyBadge(a.tallBoy):''}</div>${playedLine(a)}<div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
+      <div class="side"><div class="mname">${a.managers.join(' & ')} ${scoringStarted?vpBadge(a.vp):''}${scoringStarted?tallBoyBadge(a.tallBoy):''}</div>${isCurrentWeek?playedLine(a):''}<div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
       <div class="vs">VS</div>
-      <div class="side right"><div class="mname">${scoringStarted?tallBoyBadge(b.tallBoy):''}${scoringStarted?vpBadge(b.vp):''} ${b.managers.join(' & ')}</div>${playedLine(b)}<div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
+      <div class="side right"><div class="mname">${scoringStarted?tallBoyBadge(b.tallBoy):''}${scoringStarted?vpBadge(b.vp):''} ${b.managers.join(' & ')}</div>${isCurrentWeek?playedLine(b):''}<div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
     </div>`;
   }).join('');
 
@@ -1290,8 +1367,16 @@ function renderLiveSeason(){
     </div>
   `;
 
-  const topSection = liveView==='beers' ? renderBeersDue(live.beersDue) : `
-    <div class="section-title">Week ${live.week} matchups <span style="font-weight:500;text-transform:none;color:var(--text-3)">VP shown is live, not yet final</span></div>
+  // Beers Due defaults to the most recently completed week (matches the app
+  // opening on the live week), but tracks the week selector once the user
+  // has explicitly picked one — including showing "still in progress" if
+  // they pick the current live week.
+  const beersWeek = selectedWeek || (live.week - 1);
+  if(beersWeek >= 1 && beersWeek < live.week) ensureWeekStats(beersWeek);
+  const beersDue = computeBeersDueForWeek(beersWeek);
+
+  const topSection = liveView==='beers' ? renderBeersDue(beersDue, beersWeek) : `
+    <div class="section-title">Week ${wk} matchups <span style="font-weight:500;text-transform:none;color:var(--text-3)">${isCurrentWeek ? 'VP shown is live, not yet final' : 'Final results'}</span></div>
     ${matchupCards}
   `;
 
