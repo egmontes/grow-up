@@ -1401,14 +1401,23 @@ function attachBeerCards(){
 function renderLiveSeason(){
   if(live.status==='idle') loadLiveData();
 
-  const fullPairsThisWeek = live.status==='ready' ? live.matchups.filter(p=>p.length===2) : [];
+  const wk = effectiveWeek();
+  const isCurrentWeek = live.status==='ready' && wk === live.week;
+  const displayedMatchups = live.status==='ready' ? getMatchupsForWeek(wk) : [];
+  renderedMatchups = displayedMatchups;
+  if(live.status==='ready' && !isCurrentWeek) ensureWeekStats(wk);
+
+  // The header (eyebrow/title/LIVE badge/rivalry tag) always reflects
+  // whichever week is currently selected, not necessarily the real live
+  // week — switching the week selector updates it.
+  const fullPairsThisWeek = displayedMatchups.filter(p=>p.length===2);
   const weekIsRivalryWeek = fullPairsThisWeek.length>0 && fullPairsThisWeek.every(([a,b])=>isRivalryPair(a.managers,b.managers));
   const header = `
     <div class="topbar">
       <div class="brand">
         <span class="eyebrow">This Season</span>
-        <span class="title">${live.season || '2026'} <span class="tag live"><span class="dot"></span>LIVE</span>${weekIsRivalryWeek ? ' <span class="tag rivalry">🔥 RIVALRY WEEK</span>' : ''}</span>
-        <span class="sub">${live.status==='ready' ? 'Week '+live.week+' · via Sleeper' : live.status==='error' ? 'Live data unavailable' : 'Loading live data from Sleeper…'}</span>
+        <span class="title">${live.season || '2026'}${isCurrentWeek ? ' <span class="tag live"><span class="dot"></span>LIVE</span>' : ''}${weekIsRivalryWeek ? ' <span class="tag rivalry">🔥 RIVALRY WEEK</span>' : ''}</span>
+        <span class="sub">${live.status==='ready' ? 'Week '+wk+(isCurrentWeek ? ' · via Sleeper' : ' · final') : live.status==='error' ? 'Live data unavailable' : 'Loading live data from Sleeper…'}</span>
       </div>
       ${weekSelectHTML()}
     </div>
@@ -1420,12 +1429,6 @@ function renderLiveSeason(){
   if(live.status==='error'){
     return header + `<div class="empty">Couldn't reach Sleeper (${live.error||'network error'}).<br><a href="#" id="live-retry" style="color:var(--accent);font-weight:700;">Tap to retry</a></div>`;
   }
-
-  const wk = effectiveWeek();
-  const isCurrentWeek = wk === live.week;
-  const displayedMatchups = getMatchupsForWeek(wk);
-  renderedMatchups = displayedMatchups;
-  if(!isCurrentWeek) ensureWeekStats(wk);
 
   // Don't show VP / Tall Boy badges until someone's actually scored —
   // before kickoff every matchup sits at 0-0, so the badges (especially
