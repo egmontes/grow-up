@@ -336,7 +336,7 @@ const DATA = {"leagueName":"Grow Up","years":[2018,2019,2020,2021,2022,2023,2024
 function pct(v){ return v.toFixed(1)+'%'; }
 function num(v){ return (v===null||v===undefined) ? '—' : v; }
 function fmt1(v){ return (v===null||v===undefined) ? '—' : Number(v).toFixed(1); }
-function fmtPts(v){ return (v===null||v===undefined) ? '—' : Number(v).toLocaleString(undefined,{maximumFractionDigits:1}); }
+function fmtPts(v){ return (v===null||v===undefined) ? '—' : Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function initials(name){ return name.slice(0,2).toUpperCase(); }
 function rankTag(m, key, side){
   const r = m.ranks && m.ranks[key];
