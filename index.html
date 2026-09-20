@@ -384,6 +384,10 @@ function computeHash(page){
   return '#/home';
 }
 
+function setActiveNav(page){
+  document.querySelectorAll('#bottomnav .nitem').forEach(b=>b.classList.toggle('active', b.dataset.go===page));
+}
+
 function paintPanels(){
   const prevName = PAGE_ORDER[curIndex-1];
   const nextName = PAGE_ORDER[curIndex+1];
@@ -399,7 +403,7 @@ function paintPanels(){
   attachMatchupCards();
   attachLiveViewToggle();
   attachBeerCards();
-  document.querySelectorAll('#bottomnav .nitem').forEach(b=>b.classList.toggle('active', b.dataset.go===curPage));
+  setActiveNav(curPage);
   if(curPage==='managers' && lastManagers.length){
     const detail = panelCur.querySelector('#manager-detail');
     if(detail && detail.scrollIntoView){
@@ -411,6 +415,7 @@ function paintPanels(){
 function slideToIndex(targetIdx, targetPage){
   const dir = targetIdx > curIndex ? 1 : -1;
   const vwpx = vw();
+  setActiveNav(targetPage); // highlight the destination tab right away, don't wait for the slide to finish
   trackEl.style.transition = 'transform 280ms cubic-bezier(.22,.61,.36,1)';
   trackEl.style.transform = 'translateX('+(-(1+dir)*vwpx)+'px)';
   trackEl.addEventListener('transitionend', function onEnd(e){
@@ -594,6 +599,7 @@ viewportEl.addEventListener('touchend', ()=>{
 
   trackEl.style.transition = 'transform 260ms cubic-bezier(.22,.61,.36,1)';
   if(targetIdx !== curIndex){
+    setActiveNav(PAGE_ORDER[targetIdx]); // highlight the destination tab right away, don't wait for the slide to finish
     const dir = targetIdx > curIndex ? 1 : -1;
     trackEl.style.transform = 'translateX('+(-(1+dir)*vwpx)+'px)';
     trackEl.addEventListener('transitionend', function onEnd(e){
