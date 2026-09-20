@@ -268,6 +268,18 @@
     nav.bottomnav{border-radius:16px 16px 0 0;bottom:0;}
   }
   h2.page-title{font-size:20px;font-weight:800;margin:4px 0 16px;}
+
+  .ptr-indicator{
+    position:fixed;top:calc(8px + env(safe-area-inset-top));left:50%;
+    transform:translateX(-50%) scale(0.6);width:32px;height:32px;border-radius:50%;
+    background:var(--surface);border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;
+    opacity:0;z-index:15;pointer-events:none;
+    box-shadow:0 4px 14px rgba(0,0,0,0.35);
+  }
+  .ptr-arrow{width:16px;height:16px;color:var(--accent);transition:transform .1s linear;}
+  .ptr-indicator.spinning .ptr-arrow{animation:ptrspin .7s linear infinite;transform:none;}
+  @keyframes ptrspin{to{transform:rotate(360deg);}}
 </style>
 </head>
 <body>
@@ -277,6 +289,9 @@
     <div class="panel" id="panel-cur"></div>
     <div class="panel" id="panel-next"></div>
   </div>
+</div>
+<div class="ptr-indicator" id="ptr-indicator">
+  <svg class="ptr-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M12 19l-6-6M12 19l6-6"/></svg>
 </div>
 <nav class="bottomnav" id="bottomnav">
   <button class="nitem" data-go="home">
@@ -471,11 +486,60 @@ function init(){
   trackEl.style.transform = 'translateX('+(-vw())+'px)';
 }
 
+// Pull-to-refresh (This Season page only): pulling down while already at
+// the top of the page drags the panel down with resistance; releasing past
+// the threshold re-fetches live Sleeper data. Shares the same touch gesture
+// state machine as the horizontal page-swipe carousel below so the two
+// never fight over the same drag.
+const PTR_THRESHOLD = 46;
+let ptrRefreshing = false;
+function setPtrIndicator(pull){
+  const el = document.getElementById('ptr-indicator');
+  if(!el) return;
+  const t = Math.min(1, pull/PTR_THRESHOLD);
+  el.style.opacity = t;
+  el.style.transform = 'translateX(-50%) scale('+(0.6+0.4*t)+')';
+  const arrow = el.querySelector('.ptr-arrow');
+  if(arrow) arrow.style.transform = 'rotate('+(t*180)+'deg)';
+}
+function resetPtr(){
+  ptrRefreshing = false;
+  panelCur.style.transition = 'transform 220ms cubic-bezier(.22,.61,.36,1)';
+  panelCur.style.transform = 'translateY(0px)';
+  const el = document.getElementById('ptr-indicator');
+  if(el){
+    el.classList.remove('spinning');
+    el.style.opacity = 0;
+    el.style.transform = 'translateX(-50%) scale(0.6)';
+    const arrow = el.querySelector('.ptr-arrow');
+    if(arrow) arrow.style.transform = '';
+  }
+  panelCur.addEventListener('transitionend', function onEnd(e){
+    if(e.propertyName && e.propertyName!=='transform') return;
+    panelCur.removeEventListener('transitionend', onEnd);
+    panelCur.style.transition = '';
+    panelCur.style.transform = '';
+  });
+}
+function triggerPullRefresh(){
+  ptrRefreshing = true;
+  panelCur.style.transition = 'transform 180ms cubic-bezier(.22,.61,.36,1)';
+  panelCur.style.transform = 'translateY('+PTR_THRESHOLD+'px)';
+  const el = document.getElementById('ptr-indicator');
+  if(el){
+    el.style.opacity = 1;
+    el.style.transform = 'translateX(-50%) scale(1)';
+    el.classList.add('spinning');
+  }
+  live.status = 'idle';
+  loadLiveData().then(resetPtr);
+}
+
 let drag = null;
 viewportEl.addEventListener('touchstart', (e)=>{
   const t = e.touches[0];
   if(t.target.closest('.table-scroll, .pillrow')){ drag = null; return; }
-  drag = { startX:t.clientX, startY:t.clientY, locked:null, lastDx:0, vwpx:vw() };
+  drag = { startX:t.clientX, startY:t.clientY, locked:null, lastDx:0, pull:0, vwpx:vw() };
 }, {passive:true});
 
 viewportEl.addEventListener('touchmove', (e)=>{
@@ -485,8 +549,13 @@ viewportEl.addEventListener('touchmove', (e)=>{
   const dy = t.clientY - drag.startY;
   if(drag.locked===null){
     if(Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-    drag.locked = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
-    if(drag.locked==='v'){ drag = null; return; }
+    if(Math.abs(dx) > Math.abs(dy)){
+      drag.locked = 'h';
+    } else if(dy > 0 && curPage==='live' && panelCur.scrollTop<=0 && !ptrRefreshing){
+      drag.locked = 'ptr';
+    } else {
+      drag = null; return;
+    }
   }
   if(drag.locked==='h'){
     if(e.cancelable) e.preventDefault();
@@ -497,9 +566,24 @@ viewportEl.addEventListener('touchmove', (e)=>{
     trackEl.style.transform = 'translateX('+(-drag.vwpx+clamped)+'px)';
     drag.lastDx = clamped;
   }
+  if(drag.locked==='ptr'){
+    if(e.cancelable) e.preventDefault();
+    const pull = Math.min(90, Math.max(0, dy) * 0.5);
+    panelCur.style.transition = 'none';
+    panelCur.style.transform = 'translateY('+pull+'px)';
+    drag.pull = pull;
+    setPtrIndicator(pull);
+  }
 }, {passive:false});
 
 viewportEl.addEventListener('touchend', ()=>{
+  if(drag && drag.locked==='ptr'){
+    const pull = drag.pull || 0;
+    drag = null;
+    if(pull >= PTR_THRESHOLD) triggerPullRefresh();
+    else resetPtr();
+    return;
+  }
   if(!drag || drag.locked!=='h'){ drag = null; return; }
   const dx = drag.lastDx;
   const vwpx = drag.vwpx;
