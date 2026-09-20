@@ -1456,8 +1456,8 @@ function renderLiveSeason(){
   const toggleRow = `
     <div class="toggle-row">
       <button class="pill ${liveView==='matchups'?'active':''}" data-liveview="matchups">Matchups</button>
-      <button class="pill ${liveView==='beers'?'active':''}" data-liveview="beers">🍺 Due This Week</button>
-      <button class="pill ${liveView==='loading'?'active':''}" data-liveview="loading">🍺 Loading</button>
+      <button class="pill ${liveView==='beers'?'active':''}" data-liveview="beers">🍺 This Week</button>
+      <button class="pill ${liveView==='loading'?'active':''}" data-liveview="loading">🍺 Upcoming</button>
     </div>
   `;
 
@@ -1481,7 +1481,7 @@ function renderLiveSeason(){
   if(liveView==='beers' && browsingPastWeek) renderedBeerEntries = [];
   const topSection = liveView==='beers'
     ? (browsingPastWeek
-        ? `<div class="section-title">Due This Week</div><div class="empty">Not applicable while browsing Week ${wk} — Due This Week always reflects the most recently completed week. Switch the selector back to Live to see it.</div>`
+        ? `<div class="section-title">This Week</div><div class="empty">Not applicable while browsing Week ${wk} — This Week always reflects the most recently completed week. Switch the selector back to Live to see it.</div>`
         : renderBeersDue(beersDue, dueNotReadyMsg, false))
     : liveView==='loading' ? renderBeersDue(loadingBeersDue, loadingNotReadyMsg, isCurrentWeek)
     : `
