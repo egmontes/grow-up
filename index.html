@@ -864,6 +864,11 @@ function closeMatchupDrawer(){
   document.getElementById('matchup-drawer-overlay').classList.remove('open');
   document.body.style.overflow = '';
   drawerPair = null;
+  // Clear any inline transform/transition left over from a swipe-to-dismiss
+  // drag, so the next open starts clean under the CSS class's own transition.
+  const sheet = document.getElementById('matchup-drawer-sheet');
+  sheet.style.transition = '';
+  sheet.style.transform = '';
 }
 function attachMatchupCards(){
   document.querySelectorAll('.matchup-card[data-matchup-idx]').forEach(el=>{
@@ -1749,6 +1754,55 @@ document.getElementById('matchup-drawer-close').addEventListener('click', closeM
 document.getElementById('matchup-drawer-overlay').addEventListener('click', (e)=>{
   if(e.target.id === 'matchup-drawer-overlay') closeMatchupDrawer();
 });
+
+// Swipe-to-dismiss: drag the sheet down to close it. Only takes over once
+// the sheet's own content is scrolled to the top (so it doesn't fight with
+// scrolling a long lineup list), same gating pattern as pull-to-refresh.
+let drawerDrag = null;
+const drawerSheetEl = document.getElementById('matchup-drawer-sheet');
+drawerSheetEl.addEventListener('touchstart', (e)=>{
+  const t = e.touches[0];
+  drawerDrag = { startY: t.clientY, locked: null, dy: 0 };
+}, {passive:true});
+
+drawerSheetEl.addEventListener('touchmove', (e)=>{
+  if(!drawerDrag) return;
+  const t = e.touches[0];
+  const dy = t.clientY - drawerDrag.startY;
+  if(drawerDrag.locked===null){
+    if(Math.abs(dy) < 6) return;
+    if(dy > 0 && drawerSheetEl.scrollTop <= 0){
+      drawerDrag.locked = true;
+    } else {
+      drawerDrag = null;
+      return;
+    }
+  }
+  if(e.cancelable) e.preventDefault();
+  const clamped = Math.max(0, dy);
+  drawerSheetEl.style.transition = 'none';
+  drawerSheetEl.style.transform = 'translateY('+clamped+'px)';
+  drawerDrag.dy = clamped;
+}, {passive:false});
+
+drawerSheetEl.addEventListener('touchend', ()=>{
+  if(!drawerDrag || !drawerDrag.locked){ drawerDrag = null; return; }
+  const dy = drawerDrag.dy;
+  drawerDrag = null;
+  const DISMISS_THRESHOLD = 110;
+  if(dy >= DISMISS_THRESHOLD){
+    closeMatchupDrawer();
+  } else {
+    drawerSheetEl.style.transition = 'transform 220ms cubic-bezier(.22,.61,.36,1)';
+    drawerSheetEl.style.transform = 'translateY(0px)';
+    drawerSheetEl.addEventListener('transitionend', function onEnd(e){
+      if(e.propertyName && e.propertyName!=='transform') return;
+      drawerSheetEl.removeEventListener('transitionend', onEnd);
+      drawerSheetEl.style.transition = '';
+      drawerSheetEl.style.transform = '';
+    });
+  }
+}, {passive:true});
 
 init();
 loadLiveData();
