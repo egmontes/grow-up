@@ -1294,6 +1294,10 @@ async function loadLiveData(){
         top6: top6Counts[r.roster_id] || 0,
       };
     }).sort((a,b)=> compareStandingsVP(a,b,h2h));
+    // Fix each team's season rank to this canonical (tiebreak-resolved)
+    // order — the "#" column always shows this, even when the table is
+    // displayed sorted by some other column.
+    standings.forEach((row,i)=>{ row.seasonRank = i+1; });
 
     const curWeekMatchups = weeks[weeks.length-1] || [];
     const matchups = buildWeekMatchups(curWeekMatchups, weekStatsAll[weekStatsAll.length-1] || {});
@@ -1558,7 +1562,7 @@ function renderLiveSeason(){
   const rows = standingsRows.map((row,i)=>{
     const names = row.managers.map(m=>`<a href="#/managers/${encodeURIComponent(m)}" style="color:inherit">${m}</a>`).join(' <span style="color:var(--text-3)">&amp;</span> ');
     return `<tr>
-      <td>${i+1}</td>
+      <td>${row.seasonRank}</td>
       <td>${names}</td>
       <td class="num-cell" style="color:var(--accent);font-weight:800;">${row.vp}</td>
       <td class="${row.wins>=row.losses?'win-txt':'loss-txt'}">${row.wins}-${row.losses}${row.ties?'-'+row.ties:''}</td>
