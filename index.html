@@ -1007,6 +1007,19 @@ function weekVP(weekMatchups){
   return vpMap;
 }
 
+// For one week, which teams got the top-3 bonus and which got the top-6
+// bonus — same rank tiers as the VP bonus above (top-3 supersedes top-6).
+function weekRankBonus(weekMatchups){
+  const list = (weekMatchups||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
+  const ranked = [...list].sort((x,y)=>(y.points||0)-(x.points||0));
+  const bonus = {};
+  ranked.forEach((m,i)=>{
+    const rank = i+1;
+    bonus[m.roster_id] = rank<=3 ? 'top3' : rank<=6 ? 'top6' : null;
+  });
+  return bonus;
+}
+
 // Builds the per-pair matchup snapshot (points, VP, tall boy, lineup with
 // per-player played/points) for one week's raw matchup data. Reused for the
 // current live week, the most recently completed week (Beers Due), and any
@@ -1138,6 +1151,8 @@ const STANDINGS_COLUMNS = [
   { key:'manager', label:'Manager', sortable:true, dir:'asc' },
   { key:'vp', label:'VP', sortable:true, dir:'desc' },
   { key:'record', label:'Record', sortable:true, dir:'desc' },
+  { key:'top3', label:'Top 3', sortable:true, dir:'desc' },
+  { key:'top6', label:'Top 6', sortable:true, dir:'desc' },
   { key:'oz', label:'🍺 oz', sortable:true, dir:'desc' },
   { key:'pf', label:'PF', sortable:true, dir:'desc' },
   { key:'pa', label:'PA', sortable:true, dir:'desc' },
@@ -1228,8 +1243,10 @@ async function loadLiveData(){
 
     const totals = {};
     const vpTotals = {};
+    const top3Counts = {};
+    const top6Counts = {};
     const h2h = {}; // h2h[ridA][ridB] = # times A has beaten B head-to-head (closed weeks only)
-    Object.keys(SLEEPER_ROSTERS).forEach(rid=>{ totals[rid] = {pf:0, pa:0}; vpTotals[rid] = 0; });
+    Object.keys(SLEEPER_ROSTERS).forEach(rid=>{ totals[rid] = {pf:0, pa:0}; vpTotals[rid] = 0; top3Counts[rid] = 0; top6Counts[rid] = 0; });
     weeks.forEach((weekMatchups, idx)=>{
       const weekNum = idx+1;
       const byId = {};
@@ -1255,6 +1272,11 @@ async function loadLiveData(){
       if(weekNum < curWeek){
         const vpMap = weekVP(weekMatchups);
         Object.keys(vpMap).forEach(rid=>{ vpTotals[rid] = (vpTotals[rid]||0) + vpMap[rid]; });
+        const bonusMap = weekRankBonus(weekMatchups);
+        Object.keys(bonusMap).forEach(rid=>{
+          if(bonusMap[rid]==='top3') top3Counts[rid] = (top3Counts[rid]||0) + 1;
+          else if(bonusMap[rid]==='top6') top6Counts[rid] = (top6Counts[rid]||0) + 1;
+        });
       }
     });
 
@@ -1268,6 +1290,8 @@ async function loadLiveData(){
         ties: (r.settings && r.settings.ties) || 0,
         pf: t.pf, pa: t.pa,
         vp: vpTotals[r.roster_id] || 0,
+        top3: top3Counts[r.roster_id] || 0,
+        top6: top6Counts[r.roster_id] || 0,
       };
     }).sort((a,b)=> compareStandingsVP(a,b,h2h));
 
@@ -1538,6 +1562,8 @@ function renderLiveSeason(){
       <td>${names}</td>
       <td class="num-cell" style="color:var(--accent);font-weight:800;">${row.vp}</td>
       <td class="${row.wins>=row.losses?'win-txt':'loss-txt'}">${row.wins}-${row.losses}${row.ties?'-'+row.ties:''}</td>
+      <td class="num-cell">${row.top3}</td>
+      <td class="num-cell">${row.top6}</td>
       <td class="num-cell">${row.oz}</td>
       <td class="num-cell">${fmtPts(row.pf)}</td>
       <td class="num-cell">${fmtPts(row.pa)}</td>
