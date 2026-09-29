@@ -159,6 +159,13 @@
     flex:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border);
     border-radius:8px;font-size:12px;font-weight:700;padding:7px 10px;font-family:inherit;
   }
+  .week-select-wrap{position:relative;display:inline-flex;align-items:center;flex:none;}
+  .week-select-wrap.is-live .week-select{padding-left:19px;}
+  .week-select-live-dot{
+    position:absolute;left:10px;top:50%;transform:translateY(-50%);
+    width:6px;height:6px;border-radius:50%;background:#ff5a5f;
+    animation:livepulse 1.4s ease-in-out infinite;pointer-events:none;
+  }
 
   .beer-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;align-items:start;}
   .beer-card-wrap{perspective:800px;min-width:0;min-height:0;}
@@ -1140,9 +1147,28 @@ function standingsSortValue(row, key){
   if(key==='record') return row.wins - row.losses;
   return row[key];
 }
+// How many times rosterId `a` has beaten rosterId `b` head-to-head this
+// season (closed weeks only) — used as the final standings tiebreaker.
+function headToHeadWins(h2h, a, b){
+  return (h2h && h2h[a] && h2h[a][b]) || 0;
+}
+// The season standings tiebreaker chain: VP, then record (win-loss diff),
+// then points for, then head-to-head result between the tied teams.
+function compareStandingsVP(a, b, h2h){
+  if(b.vp !== a.vp) return b.vp - a.vp;
+  const arecord = a.wins - a.losses, brecord = b.wins - b.losses;
+  if(brecord !== arecord) return brecord - arecord;
+  if(b.pf !== a.pf) return b.pf - a.pf;
+  const aWins = headToHeadWins(h2h, a.rosterId, b.rosterId);
+  const bWins = headToHeadWins(h2h, b.rosterId, a.rosterId);
+  return bWins - aWins;
+}
 function sortStandingsRows(rows){
   const col = STANDINGS_COLUMNS.find(c=>c.key===standingsSort.key);
   if(!col || !col.sortable) return rows;
+  if(standingsSort.key==='vp'){
+    return [...rows].sort((a,b)=> standingsSort.dir==='asc' ? compareStandingsVP(b,a,live.h2h) : compareStandingsVP(a,b,live.h2h));
+  }
   return [...rows].sort((a,b)=>{
     const av = standingsSortValue(a, standingsSort.key), bv = standingsSortValue(b, standingsSort.key);
     if(typeof av === 'string') return standingsSort.dir==='asc' ? av.localeCompare(bv) : bv.localeCompare(av);
@@ -1202,6 +1228,7 @@ async function loadLiveData(){
 
     const totals = {};
     const vpTotals = {};
+    const h2h = {}; // h2h[ridA][ridB] = # times A has beaten B head-to-head (closed weeks only)
     Object.keys(SLEEPER_ROSTERS).forEach(rid=>{ totals[rid] = {pf:0, pa:0}; vpTotals[rid] = 0; });
     weeks.forEach((weekMatchups, idx)=>{
       const weekNum = idx+1;
@@ -1212,6 +1239,14 @@ async function loadLiveData(){
         const [a,b] = pair;
         if(totals[a.roster_id]){ totals[a.roster_id].pf += (a.points||0); totals[a.roster_id].pa += (b.points||0); }
         if(totals[b.roster_id]){ totals[b.roster_id].pf += (b.points||0); totals[b.roster_id].pa += (a.points||0); }
+
+        // Only a fully closed week's result counts as a head-to-head win —
+        // an in-progress score isn't a final result yet.
+        if(weekNum < curWeek){
+          const ap = a.points||0, bp = b.points||0;
+          if(ap>bp){ (h2h[a.roster_id] = h2h[a.roster_id]||{})[b.roster_id] = ((h2h[a.roster_id]||{})[b.roster_id]||0) + 1; }
+          else if(bp>ap){ (h2h[b.roster_id] = h2h[b.roster_id]||{})[a.roster_id] = ((h2h[b.roster_id]||{})[a.roster_id]||0) + 1; }
+        }
       });
 
       // Only weeks that have fully closed count toward the VP standings —
@@ -1234,12 +1269,12 @@ async function loadLiveData(){
         pf: t.pf, pa: t.pa,
         vp: vpTotals[r.roster_id] || 0,
       };
-    }).sort((a,b)=> b.vp-a.vp || b.pf-a.pf);
+    }).sort((a,b)=> compareStandingsVP(a,b,h2h));
 
     const curWeekMatchups = weeks[weeks.length-1] || [];
     const matchups = buildWeekMatchups(curWeekMatchups, weekStatsAll[weekStatsAll.length-1] || {});
 
-    live = { status:'ready', season: league.season, week: curWeek, standings, matchups, weeksRaw: weeks, error:null };
+    live = { status:'ready', season: league.season, week: curWeek, standings, matchups, weeksRaw: weeks, h2h, error:null };
     // Every week's stats were fetched up front (see above), so seed the full
     // cache — no lazy re-fetching needed when browsing past weeks anymore.
     weekStatsCache = {};
@@ -1269,12 +1304,17 @@ function refreshLiveIfVisible(){
 function weekSelectHTML(){
   if(live.status!=='ready') return '';
   const wk = effectiveWeek();
+  const isLive = wk === live.week;
   let opts = '';
   for(let w=live.week; w>=1; w--){
-    const label = w===live.week ? 'Week '+w+' (Live)' : 'Week '+w;
-    opts += '<option value="'+w+'"'+(w===wk?' selected':'')+'>'+label+'</option>';
+    opts += '<option value="'+w+'"'+(w===wk?' selected':'')+'>Week '+w+'</option>';
   }
-  return '<select class="week-select" id="week-select" aria-label="Select week">'+opts+'</select>';
+  // The red pulsing dot (matching the header's LIVE badge) sits over the
+  // closed select when it's showing the live week — native <select> options
+  // can't hold styled markup, so the indicator lives outside the list.
+  return '<div class="week-select-wrap'+(isLive?' is-live':'')+'">'
+    + (isLive ? '<span class="week-select-live-dot" aria-hidden="true"></span>' : '')
+    + '<select class="week-select" id="week-select" aria-label="Select week">'+opts+'</select></div>';
 }
 function attachWeekSelect(){
   const sel = document.getElementById('week-select');
@@ -1516,7 +1556,7 @@ function renderLiveSeason(){
     </div>
     <details class="info-details" style="margin-top:10px;">
       <summary>How do Victory Points work?</summary>
-      <p>Each week you can earn up to 5 VPs: 3 for winning your matchup, plus 2 more for a top-3 score that week, or 1 more for a top-6 score (the top-3 bonus replaces the top-6 bonus, they don't stack). The standings table only counts VPs from weeks that have finished — the current week's VPs show live next to each matchup above and get added to the table once that week closes.</p>
+      <p>Each week you can earn up to 5 VPs: 3 for winning your matchup, plus 2 more for a top-3 score that week, or 1 more for a top-6 score (the top-3 bonus replaces the top-6 bonus, they don't stack). The standings table only counts VPs from weeks that have finished — the current week's VPs show live next to each matchup above and get added to the table once that week closes. Ties in VP are broken, in order, by record, then points for, then head-to-head result.</p>
     </details>
     <div style="height:8px"></div>
   `;
