@@ -200,10 +200,15 @@
 
   .badge-list{margin-bottom:8px;}
   .badge-card{
-    background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:var(--radius);
-    padding:11px 13px;margin-bottom:8px;transition:background .3s ease;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    display:flex;align-items:stretch;overflow:hidden;margin-bottom:8px;transition:background .3s ease;
   }
   .badge-card.is-empty{opacity:0.7;}
+  .badge-rank{
+    flex:none;width:30px;display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:800;color:var(--text);
+  }
+  .badge-card-body{flex:1;min-width:0;padding:11px 13px;}
   .badge-card-head{display:flex;align-items:center;gap:9px;margin-bottom:9px;}
   .badge-av{
     width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
@@ -1256,8 +1261,8 @@ function attachStandingsSort(){
 // skipped entirely when every manager is tied on it (nothing to celebrate)
 // or, for streak-style badges, when nobody's cleared the minimum threshold.
 const BADGE_DEFS = [
-  { id:'best-record', emoji:'👑', label:'Top Dog', dir:'max', metric:r=>r.wins-r.losses, detail:r=>`${r.wins}-${r.losses}${r.ties?'-'+r.ties:''}` },
-  { id:'worst-record', emoji:'🥄', label:'Wooden Spoon', dir:'min', metric:r=>r.wins-r.losses, detail:r=>`${r.wins}-${r.losses}${r.ties?'-'+r.ties:''}` },
+  { id:'best-record', emoji:'👑', label:'Top Dog', dir:'max', tiebreak:true, metric:r=>r.vp, detail:r=>`${r.vp} VP` },
+  { id:'worst-record', emoji:'🥄', label:'Wooden Spoon', dir:'min', tiebreak:true, metric:r=>r.vp, detail:r=>`${r.vp} VP` },
   { id:'hot-streak', emoji:'🔥', label:'Heater', dir:'max', minValue:2, metric:r=>r.longestWinStreak||0, detail:r=>`${r.longestWinStreak}-game win streak` },
   { id:'cold-streak', emoji:'🥶', label:'Deep Freeze', dir:'max', minValue:2, metric:r=>r.longestLossStreak||0, detail:r=>`${r.longestLossStreak}-game slide` },
   { id:'most-beer', emoji:'🍺', label:'Keg Stand Legend', dir:'max', metric:r=>r.oz||0, detail:r=>`${r.oz} oz this season` },
@@ -1267,23 +1272,41 @@ const BADGE_DEFS = [
   { id:'most-pa', emoji:'🎯', label:'Target Practice', dir:'max', metric:r=>r.pa, detail:r=>`${fmtPts(r.pa)} PA` },
   { id:'least-pa', emoji:'🛡️', label:'Fort Knox', dir:'min', metric:r=>r.pa, detail:r=>`${fmtPts(r.pa)} PA` },
 ];
-function evaluateBadgeDef(def, rows){
+function evaluateBadgeDef(def, rows, h2h){
   const values = rows.map(def.metric);
   const minV = Math.min(...values), maxV = Math.max(...values);
   if(minV===maxV) return null; // nobody stands out
   const target = def.dir==='max' ? maxV : minV;
   if(def.minValue!=null && target < def.minValue) return null;
-  return rows.filter(r=>def.metric(r)===target);
+  let winners = rows.filter(r=>def.metric(r)===target);
+  // For badges tied to overall standing (record-based), refine remaining
+  // ties with the same tiebreaker chain used for the standings themselves:
+  // VP, then record (already tied here so a no-op), then PF, then H2H.
+  if(def.tiebreak && winners.length>1){
+    const sorted = [...winners].sort((a,b)=>compareStandingsVP(a,b,h2h));
+    const anchor = def.dir==='max' ? sorted[0] : sorted[sorted.length-1];
+    winners = sorted.filter(r=>compareStandingsVP(r,anchor,h2h)===0);
+  }
+  return winners;
 }
 // rows: standings rows (with oz merged in). extras: { blowout:[...], nailbiter:[...] }
 // single-game records from loadLiveData, each { winnerRid, loserRid, margin, week }.
-function computeBadges(rows, extras){
+// h2h: live.h2h, needed to resolve ties on the record-based badges.
+function computeBadges(rows, extras, h2h){
   const map = {};
   rows.forEach(r=>{ map[r.rosterId] = []; });
   BADGE_DEFS.forEach(def=>{
-    const winners = evaluateBadgeDef(def, rows);
+    const winners = evaluateBadgeDef(def, rows, h2h);
     if(!winners) return;
     winners.forEach(r=>{ map[r.rosterId].push({ emoji:def.emoji, label:def.label, detail:def.detail(r) }); });
+  });
+  // Playoffs: top 6 by season rank (already the fully tiebreak-resolved
+  // standings order), same cutoff as the live matchup rivalry-week logic
+  // assumes for a 12-team league.
+  rows.forEach(r=>{
+    if(r.seasonRank<=6){
+      map[r.rosterId].push({ emoji:'🎟️', label:'Punched a Ticket', detail:`#${r.seasonRank} seed` });
+    }
   });
   (extras && extras.blowout || []).forEach(rec=>{
     if(!map[rec.winnerRid]) return;
@@ -1295,14 +1318,47 @@ function computeBadges(rows, extras){
     const opp = (SLEEPER_ROSTERS[rec.loserRid]||[]).join(' & ');
     map[rec.winnerRid].push({ emoji:'🫀', label:'Heart Attack Special', detail:`edged ${opp} by ${fmtPts(rec.margin)} in Wk ${rec.week}` });
   });
+  (extras && extras.highScore || []).forEach(rec=>{
+    if(!map[rec.rid]) return;
+    map[rec.rid].push({ emoji:'🚀', label:'Season High', detail:`${fmtPts(rec.points)} in Wk ${rec.week}` });
+  });
+  (extras && extras.lowScore || []).forEach(rec=>{
+    if(!map[rec.rid]) return;
+    map[rec.rid].push({ emoji:'🪦', label:'Season Low', detail:`${fmtPts(rec.points)} in Wk ${rec.week}` });
+  });
+  (extras && extras.highLoss || []).forEach(rec=>{
+    if(!map[rec.rid]) return;
+    map[rec.rid].push({ emoji:'😤', label:'Beautiful Loser', detail:`${fmtPts(rec.points)} in a loss, Wk ${rec.week}` });
+  });
+  (extras && extras.lowWin || []).forEach(rec=>{
+    if(!map[rec.rid]) return;
+    map[rec.rid].push({ emoji:'🍀', label:'Lucky Escape', detail:`won with just ${fmtPts(rec.points)} in Wk ${rec.week}` });
+  });
   return map;
 }
-// Warms a card's background from plain surface toward a golden glow as its
-// badge count climbs — mirrors beerCardShade's intensity-by-count trick.
-function badgeCardShade(count){
+// Warms a card's background from plain surface toward a green or red glow
+// (matching the rank chip's playoff/non-playoff split) as its badge count
+// climbs — mirrors beerCardShade's intensity-by-count trick.
+function badgeCardShade(count, rank){
   if(!count) return null;
-  const t = Math.max(0, Math.min(1, (count-1)/3));
-  const lo = [19,25,40], hi = [61,42,14];
+  const t = Math.max(0, Math.min(1, count/4)); // 1 badge already reads as tinted, 4+ is full strength
+  const lo = [19,25,40];
+  const hi = rank<=6 ? [30,68,50] : [70,35,32];
+  const c = lo.map((v,i)=>Math.round(v+(hi[i]-v)*t));
+  return 'rgb('+c.join(',')+')';
+}
+// Rank chip color: top-6 (playoff) seeds shade green, getting more intense
+// toward #1; the rest shade red, getting more intense toward last place.
+function badgeRankColor(rank, total){
+  if(rank<=6){
+    const t = (6-rank)/5; // rank 6 -> 0 (faint), rank 1 -> 1 (strongest)
+    const lo = [38,58,48], hi = [34,197,94];
+    const c = lo.map((v,i)=>Math.round(v+(hi[i]-v)*t));
+    return 'rgb('+c.join(',')+')';
+  }
+  const bottomCount = Math.max(1, total-6);
+  const t = bottomCount>1 ? (rank-7)/(bottomCount-1) : 1; // rank 7 -> 0, last -> 1
+  const lo = [58,38,38], hi = [224,87,74];
   const c = lo.map((v,i)=>Math.round(v+(hi[i]-v)*t));
   return 'rgb('+c.join(',')+')';
 }
@@ -1310,24 +1366,27 @@ function renderBadges(rankedRows){
   if(!rankedRows.length){
     return `<div class="section-title">Badges</div><div class="empty">Badges will show up once there's some season data.</div>`;
   }
-  const badgeMap = computeBadges(rankedRows, live.badgeExtras);
+  const badgeMap = computeBadges(rankedRows, live.badgeExtras, live.h2h);
   const cards = rankedRows.map(row=>{
     const names = row.managers.map(m=>`<a href="#/managers/${encodeURIComponent(m)}" style="color:inherit">${m}</a>`).join(' <span style="color:var(--text-3)">&amp;</span> ');
     const firstManager = row.managers[0];
     const badges = badgeMap[row.rosterId] || [];
-    const shade = badgeCardShade(badges.length);
+    const shade = badgeCardShade(badges.length, row.seasonRank);
     const chips = badges.length
       ? badges.map(b=>`<span class="badge-chip">${b.emoji} ${b.label}<small>${b.detail}</small></span>`).join('')
       : `<span class="badge-card-empty">No accolades yet — check back after more weeks</span>`;
-    return `<div class="badge-card${badges.length?'':' is-empty'}" style="${shade?'background:'+shade+';':''}border-left-color:${avatarColor(firstManager)};">
-      <div class="badge-card-head">
-        <div class="badge-av" style="${avatarStyle(firstManager)}">${initials(firstManager)}</div>
-        <div class="badge-card-name">${names}</div>
+    return `<div class="badge-card${badges.length?'':' is-empty'}" style="${shade?'background:'+shade+';':''}">
+      <div class="badge-rank" style="background:${badgeRankColor(row.seasonRank, rankedRows.length)};">${row.seasonRank}</div>
+      <div class="badge-card-body">
+        <div class="badge-card-head">
+          <div class="badge-av" style="${avatarStyle(firstManager)}">${initials(firstManager)}</div>
+          <div class="badge-card-name">${names}</div>
+        </div>
+        <div class="badge-chip-row">${chips}</div>
       </div>
-      <div class="badge-chip-row">${chips}</div>
     </div>`;
   }).join('');
-  return `<div class="section-title">Badges <span style="font-weight:500;text-transform:none;color:var(--text-3)">season awards, updated after each closed week</span></div><div class="badge-list">${cards}</div>`;
+  return `<div class="section-title">Badges <span style="font-weight:500;text-transform:none;color:var(--text-3)">season awards</span></div><div class="badge-list">${cards}</div>`;
 }
 
 async function loadLiveData(){
@@ -1367,6 +1426,10 @@ async function loadLiveData(){
     const longestLossStreak = {};
     let blowout = []; let blowoutMargin = null; // biggest single-game win margin, ties allowed
     let nailbiter = []; let nailbiterMargin = null; // smallest decisive single-game margin, ties allowed
+    let highScore = []; let highScoreVal = null; // most points in any single week
+    let lowScore = []; let lowScoreVal = null; // fewest points in any single week
+    let highLoss = []; let highLossVal = null; // most points scored while still losing
+    let lowWin = []; let lowWinVal = null; // fewest points scored while still winning
     Object.keys(SLEEPER_ROSTERS).forEach(rid=>{
       totals[rid] = {pf:0, pa:0}; vpTotals[rid] = 0; top3Counts[rid] = 0; top6Counts[rid] = 0;
       curStreak[rid] = {result:null, len:0}; longestWinStreak[rid] = 0; longestLossStreak[rid] = 0;
@@ -1409,6 +1472,23 @@ async function loadLiveData(){
             if(nailbiterMargin===null || margin<nailbiterMargin){ nailbiterMargin = margin; nailbiter = [rec]; }
             else if(margin===nailbiterMargin){ nailbiter.push(rec); }
           }
+
+          // Single-week score extremes — tracked per team-week, regardless
+          // of who they played, plus the "in a loss" / "in a win" variants.
+          [[a.roster_id, ap, bp], [b.roster_id, bp, ap]].forEach(([rid, pts, oppPts])=>{
+            const rec = {rid, points:pts, week:weekNum};
+            if(highScoreVal===null || pts>highScoreVal){ highScoreVal = pts; highScore = [rec]; }
+            else if(pts===highScoreVal){ highScore.push(rec); }
+            if(lowScoreVal===null || pts<lowScoreVal){ lowScoreVal = pts; lowScore = [rec]; }
+            else if(pts===lowScoreVal){ lowScore.push(rec); }
+            if(pts<oppPts){ // this team lost this week
+              if(highLossVal===null || pts>highLossVal){ highLossVal = pts; highLoss = [rec]; }
+              else if(pts===highLossVal){ highLoss.push(rec); }
+            } else if(pts>oppPts){ // this team won this week
+              if(lowWinVal===null || pts<lowWinVal){ lowWinVal = pts; lowWin = [rec]; }
+              else if(pts===lowWinVal){ lowWin.push(rec); }
+            }
+          });
         }
       });
 
@@ -1450,7 +1530,7 @@ async function loadLiveData(){
     const curWeekMatchups = weeks[weeks.length-1] || [];
     const matchups = buildWeekMatchups(curWeekMatchups, weekStatsAll[weekStatsAll.length-1] || {});
 
-    live = { status:'ready', season: league.season, week: curWeek, standings, matchups, weeksRaw: weeks, h2h, badgeExtras: { blowout, nailbiter }, error:null };
+    live = { status:'ready', season: league.season, week: curWeek, standings, matchups, weeksRaw: weeks, h2h, badgeExtras: { blowout, nailbiter, highScore, lowScore, highLoss, lowWin }, error:null };
     // Every week's stats were fetched up front (see above), so seed the full
     // cache — no lazy re-fetching needed when browsing past weeks anymore.
     weekStatsCache = {};
