@@ -197,6 +197,26 @@
   .bc-hint{font-size:8px;color:var(--text-3);margin-top:4px;}
   .bc-reason{display:flex;align-items:center;gap:4px;padding:2px 0;font-size:8.5px;color:var(--text-2);line-height:1.3;}
   .bc-reason .bc-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  .badge-list{margin-bottom:8px;}
+  .badge-card{
+    background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:var(--radius);
+    padding:11px 13px;margin-bottom:8px;transition:background .3s ease;
+  }
+  .badge-card.is-empty{opacity:0.7;}
+  .badge-card-head{display:flex;align-items:center;gap:9px;margin-bottom:9px;}
+  .badge-av{
+    width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:10.5px;font-weight:800;color:#0a0d14;flex:none;
+  }
+  .badge-card-name{font-size:14.5px;font-weight:800;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .badge-chip-row{display:flex;flex-wrap:wrap;gap:6px;}
+  .badge-chip{
+    display:inline-flex;align-items:center;gap:4px;background:rgba(0,0,0,0.22);
+    border-radius:20px;padding:5px 10px;font-size:11px;font-weight:700;line-height:1.2;
+  }
+  .badge-chip small{color:var(--text-3);font-weight:600;font-size:9.5px;margin-left:2px;}
+  .badge-card-empty{font-size:11px;color:var(--text-3);font-weight:500;}
   .matchup-card{
     position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;
@@ -364,7 +384,8 @@ function rankTag(m, key, side){
   const span = '<span class="rank-tag">#'+r.rank+'/'+r.of+'</span>';
   return side==='before' ? span+' ' : ' '+span;
 }
-function avatarStyle(name){ const c = DATA.managers[name] ? DATA.managers[name].color : '#22c55e'; return 'background:'+c+';'; }
+function avatarColor(name){ return DATA.managers[name] ? DATA.managers[name].color : '#22c55e'; }
+function avatarStyle(name){ return 'background:'+avatarColor(name)+';'; }
 
 function sortedManagerNames(){
   return Object.keys(DATA.managers).sort((a,b)=>{
@@ -391,6 +412,7 @@ let weekStatsCache = {};
 let weekStatsLoading = new Set();
 let renderedMatchups = []; // the matchup pairs currently on screen (may be a past week), for the drawer click handler
 let standingsSort = { key:'vp', dir:'desc' };
+let liveBottomView = 'standings'; // 'standings' | 'badges'
 
 const viewportEl = document.getElementById('viewport');
 const trackEl = document.getElementById('track');
@@ -438,6 +460,7 @@ function paintPanels(){
   attachBeerCards();
   attachWeekSelect();
   attachStandingsSort();
+  attachLiveBottomToggle();
   setActiveNav(curPage);
   if(curPage==='managers' && lastManagers.length){
     const detail = panelCur.querySelector('#manager-detail');
@@ -494,6 +517,7 @@ function handleHashChange(){
     attachBeerCards();
     attachWeekSelect();
     attachStandingsSort();
+    attachLiveBottomToggle();
     if(curPage==='managers' && lastManagers.length){
       const detail = panelCur.querySelector('#manager-detail');
       if(detail && detail.scrollIntoView){
@@ -1227,6 +1251,85 @@ function attachStandingsSort(){
   });
 }
 
+// Season awards ("Badges" tab). Each def is a per-manager metric with a
+// direction to optimize; ties are all awarded the badge. A category is
+// skipped entirely when every manager is tied on it (nothing to celebrate)
+// or, for streak-style badges, when nobody's cleared the minimum threshold.
+const BADGE_DEFS = [
+  { id:'best-record', emoji:'👑', label:'Top Dog', dir:'max', metric:r=>r.wins-r.losses, detail:r=>`${r.wins}-${r.losses}${r.ties?'-'+r.ties:''}` },
+  { id:'worst-record', emoji:'🥄', label:'Wooden Spoon', dir:'min', metric:r=>r.wins-r.losses, detail:r=>`${r.wins}-${r.losses}${r.ties?'-'+r.ties:''}` },
+  { id:'hot-streak', emoji:'🔥', label:'Heater', dir:'max', minValue:2, metric:r=>r.longestWinStreak||0, detail:r=>`${r.longestWinStreak}-game win streak` },
+  { id:'cold-streak', emoji:'🥶', label:'Deep Freeze', dir:'max', minValue:2, metric:r=>r.longestLossStreak||0, detail:r=>`${r.longestLossStreak}-game slide` },
+  { id:'most-beer', emoji:'🍺', label:'Keg Stand Legend', dir:'max', metric:r=>r.oz||0, detail:r=>`${r.oz} oz this season` },
+  { id:'least-beer', emoji:'🙅', label:'Designated Driver', dir:'min', metric:r=>r.oz||0, detail:r=>`${r.oz} oz this season` },
+  { id:'most-pf', emoji:'💥', label:'Human Highlight Reel', dir:'max', metric:r=>r.pf, detail:r=>`${fmtPts(r.pf)} PF` },
+  { id:'least-pf', emoji:'⛽', label:'Empty Tank', dir:'min', metric:r=>r.pf, detail:r=>`${fmtPts(r.pf)} PF` },
+  { id:'most-pa', emoji:'🎯', label:'Target Practice', dir:'max', metric:r=>r.pa, detail:r=>`${fmtPts(r.pa)} PA` },
+  { id:'least-pa', emoji:'🛡️', label:'Fort Knox', dir:'min', metric:r=>r.pa, detail:r=>`${fmtPts(r.pa)} PA` },
+];
+function evaluateBadgeDef(def, rows){
+  const values = rows.map(def.metric);
+  const minV = Math.min(...values), maxV = Math.max(...values);
+  if(minV===maxV) return null; // nobody stands out
+  const target = def.dir==='max' ? maxV : minV;
+  if(def.minValue!=null && target < def.minValue) return null;
+  return rows.filter(r=>def.metric(r)===target);
+}
+// rows: standings rows (with oz merged in). extras: { blowout:[...], nailbiter:[...] }
+// single-game records from loadLiveData, each { winnerRid, loserRid, margin, week }.
+function computeBadges(rows, extras){
+  const map = {};
+  rows.forEach(r=>{ map[r.rosterId] = []; });
+  BADGE_DEFS.forEach(def=>{
+    const winners = evaluateBadgeDef(def, rows);
+    if(!winners) return;
+    winners.forEach(r=>{ map[r.rosterId].push({ emoji:def.emoji, label:def.label, detail:def.detail(r) }); });
+  });
+  (extras && extras.blowout || []).forEach(rec=>{
+    if(!map[rec.winnerRid]) return;
+    const opp = (SLEEPER_ROSTERS[rec.loserRid]||[]).join(' & ');
+    map[rec.winnerRid].push({ emoji:'💣', label:'Mercy Rule', detail:`beat ${opp} by ${fmtPts(rec.margin)} in Wk ${rec.week}` });
+  });
+  (extras && extras.nailbiter || []).forEach(rec=>{
+    if(!map[rec.winnerRid]) return;
+    const opp = (SLEEPER_ROSTERS[rec.loserRid]||[]).join(' & ');
+    map[rec.winnerRid].push({ emoji:'🫀', label:'Heart Attack Special', detail:`edged ${opp} by ${fmtPts(rec.margin)} in Wk ${rec.week}` });
+  });
+  return map;
+}
+// Warms a card's background from plain surface toward a golden glow as its
+// badge count climbs — mirrors beerCardShade's intensity-by-count trick.
+function badgeCardShade(count){
+  if(!count) return null;
+  const t = Math.max(0, Math.min(1, (count-1)/3));
+  const lo = [19,25,40], hi = [61,42,14];
+  const c = lo.map((v,i)=>Math.round(v+(hi[i]-v)*t));
+  return 'rgb('+c.join(',')+')';
+}
+function renderBadges(rankedRows){
+  if(!rankedRows.length){
+    return `<div class="section-title">Badges</div><div class="empty">Badges will show up once there's some season data.</div>`;
+  }
+  const badgeMap = computeBadges(rankedRows, live.badgeExtras);
+  const cards = rankedRows.map(row=>{
+    const names = row.managers.map(m=>`<a href="#/managers/${encodeURIComponent(m)}" style="color:inherit">${m}</a>`).join(' <span style="color:var(--text-3)">&amp;</span> ');
+    const firstManager = row.managers[0];
+    const badges = badgeMap[row.rosterId] || [];
+    const shade = badgeCardShade(badges.length);
+    const chips = badges.length
+      ? badges.map(b=>`<span class="badge-chip">${b.emoji} ${b.label}<small>${b.detail}</small></span>`).join('')
+      : `<span class="badge-card-empty">No accolades yet — check back after more weeks</span>`;
+    return `<div class="badge-card${badges.length?'':' is-empty'}" style="${shade?'background:'+shade+';':''}border-left-color:${avatarColor(firstManager)};">
+      <div class="badge-card-head">
+        <div class="badge-av" style="${avatarStyle(firstManager)}">${initials(firstManager)}</div>
+        <div class="badge-card-name">${names}</div>
+      </div>
+      <div class="badge-chip-row">${chips}</div>
+    </div>`;
+  }).join('');
+  return `<div class="section-title">Badges <span style="font-weight:500;text-transform:none;color:var(--text-3)">season awards, updated after each closed week</span></div><div class="badge-list">${cards}</div>`;
+}
+
 async function loadLiveData(){
   if(live.status==='loading' || live.status==='ready') return;
   live.status = 'loading';
@@ -1259,7 +1362,21 @@ async function loadLiveData(){
     const top3Counts = {};
     const top6Counts = {};
     const h2h = {}; // h2h[ridA][ridB] = # times A has beaten B head-to-head (closed weeks only)
-    Object.keys(SLEEPER_ROSTERS).forEach(rid=>{ totals[rid] = {pf:0, pa:0}; vpTotals[rid] = 0; top3Counts[rid] = 0; top6Counts[rid] = 0; });
+    const curStreak = {}; // { rid: {result:'W'|'L'|null, len} } — running streak, for tracking the longest
+    const longestWinStreak = {};
+    const longestLossStreak = {};
+    let blowout = []; let blowoutMargin = null; // biggest single-game win margin, ties allowed
+    let nailbiter = []; let nailbiterMargin = null; // smallest decisive single-game margin, ties allowed
+    Object.keys(SLEEPER_ROSTERS).forEach(rid=>{
+      totals[rid] = {pf:0, pa:0}; vpTotals[rid] = 0; top3Counts[rid] = 0; top6Counts[rid] = 0;
+      curStreak[rid] = {result:null, len:0}; longestWinStreak[rid] = 0; longestLossStreak[rid] = 0;
+    });
+    function bumpStreak(rid, result){
+      const s = curStreak[rid] || (curStreak[rid] = {result:null, len:0});
+      if(s.result===result){ s.len += 1; } else { s.result = result; s.len = 1; }
+      if(result==='W' && s.len > (longestWinStreak[rid]||0)) longestWinStreak[rid] = s.len;
+      if(result==='L' && s.len > (longestLossStreak[rid]||0)) longestLossStreak[rid] = s.len;
+    }
     weeks.forEach((weekMatchups, idx)=>{
       const weekNum = idx+1;
       const byId = {};
@@ -1270,12 +1387,28 @@ async function loadLiveData(){
         if(totals[a.roster_id]){ totals[a.roster_id].pf += (a.points||0); totals[a.roster_id].pa += (b.points||0); }
         if(totals[b.roster_id]){ totals[b.roster_id].pf += (b.points||0); totals[b.roster_id].pa += (a.points||0); }
 
-        // Only a fully closed week's result counts as a head-to-head win —
-        // an in-progress score isn't a final result yet.
+        // Only a fully closed week's result counts toward head-to-head,
+        // streaks, and single-game records — an in-progress score isn't a
+        // final result yet.
         if(weekNum < curWeek){
           const ap = a.points||0, bp = b.points||0;
           if(ap>bp){ (h2h[a.roster_id] = h2h[a.roster_id]||{})[b.roster_id] = ((h2h[a.roster_id]||{})[b.roster_id]||0) + 1; }
           else if(bp>ap){ (h2h[b.roster_id] = h2h[b.roster_id]||{})[a.roster_id] = ((h2h[b.roster_id]||{})[a.roster_id]||0) + 1; }
+
+          if(ap>bp){ bumpStreak(a.roster_id,'W'); bumpStreak(b.roster_id,'L'); }
+          else if(bp>ap){ bumpStreak(b.roster_id,'W'); bumpStreak(a.roster_id,'L'); }
+          else { curStreak[a.roster_id] = {result:null,len:0}; curStreak[b.roster_id] = {result:null,len:0}; }
+
+          const margin = Math.abs(ap-bp);
+          if(margin>0){
+            const winnerRid = ap>bp ? a.roster_id : b.roster_id;
+            const loserRid = ap>bp ? b.roster_id : a.roster_id;
+            const rec = {winnerRid, loserRid, margin, week:weekNum};
+            if(blowoutMargin===null || margin>blowoutMargin){ blowoutMargin = margin; blowout = [rec]; }
+            else if(margin===blowoutMargin){ blowout.push(rec); }
+            if(nailbiterMargin===null || margin<nailbiterMargin){ nailbiterMargin = margin; nailbiter = [rec]; }
+            else if(margin===nailbiterMargin){ nailbiter.push(rec); }
+          }
         }
       });
 
@@ -1305,6 +1438,8 @@ async function loadLiveData(){
         vp: vpTotals[r.roster_id] || 0,
         top3: top3Counts[r.roster_id] || 0,
         top6: top6Counts[r.roster_id] || 0,
+        longestWinStreak: longestWinStreak[r.roster_id] || 0,
+        longestLossStreak: longestLossStreak[r.roster_id] || 0,
       };
     }).sort((a,b)=> compareStandingsVP(a,b,h2h));
     // Fix each team's season rank to this canonical (tiebreak-resolved)
@@ -1315,7 +1450,7 @@ async function loadLiveData(){
     const curWeekMatchups = weeks[weeks.length-1] || [];
     const matchups = buildWeekMatchups(curWeekMatchups, weekStatsAll[weekStatsAll.length-1] || {});
 
-    live = { status:'ready', season: league.season, week: curWeek, standings, matchups, weeksRaw: weeks, h2h, error:null };
+    live = { status:'ready', season: league.season, week: curWeek, standings, matchups, weeksRaw: weeks, h2h, badgeExtras: { blowout, nailbiter }, error:null };
     // Every week's stats were fetched up front (see above), so seed the full
     // cache — no lazy re-fetching needed when browsing past weeks anymore.
     weekStatsCache = {};
@@ -1339,6 +1474,7 @@ function refreshLiveIfVisible(){
     attachBeerCards();
     attachWeekSelect();
     attachStandingsSort();
+    attachLiveBottomToggle();
   }
 }
 
@@ -1377,6 +1513,17 @@ function attachLiveViewToggle(){
       if(liveView==='beers' && !PLAYERS){
         fetchPlayers().then(()=>{ if(liveView==='beers') refreshLiveIfVisible(); });
       }
+      refreshLiveIfVisible();
+    });
+  });
+}
+
+function attachLiveBottomToggle(){
+  document.querySelectorAll('.pill[data-liveview-bottom]').forEach(p=>{
+    p.addEventListener('click', ()=>{
+      const v = p.dataset.liveviewBottom;
+      if(v===liveBottomView) return;
+      liveBottomView = v;
       refreshLiveIfVisible();
     });
   });
@@ -1571,7 +1718,11 @@ function renderLiveSeason(){
   `;
 
   const ozTotals = seasonOzTotals();
-  const standingsRows = sortStandingsRows(live.standings.map(row=>({ ...row, oz: ozTotals[row.managers.join(' & ')] || 0 })));
+  // live.standings is already in canonical season-rank order (see
+  // loadLiveData) — enrichedRows preserves that order for the Badges tab,
+  // while standingsRows gets re-sorted per the table's own column sort.
+  const enrichedRows = live.standings.map(row=>({ ...row, oz: ozTotals[row.managers.join(' & ')] || 0 }));
+  const standingsRows = sortStandingsRows(enrichedRows);
   const rows = standingsRows.map((row,i)=>{
     const names = row.managers.map(m=>`<a href="#/managers/${encodeURIComponent(m)}" style="color:inherit">${m}</a>`).join(' <span style="color:var(--text-3)">&amp;</span> ');
     return `<tr>
@@ -1587,7 +1738,16 @@ function renderLiveSeason(){
     </tr>`;
   }).join('');
 
-  return header + toggleRow + topSection + `
+  const bottomToggleRow = `
+    <div class="toggle-row">
+      <button class="pill ${liveBottomView==='standings'?'active':''}" data-liveview-bottom="standings">Standings</button>
+      <button class="pill ${liveBottomView==='badges'?'active':''}" data-liveview-bottom="badges">🎖️ Badges</button>
+    </div>
+  `;
+
+  const bottomSection = liveBottomView==='badges'
+    ? renderBadges(enrichedRows)
+    : `
     <div class="section-title">Standings <span style="font-weight:500;text-transform:none;color:var(--text-3)">tap a column to sort</span></div>
     <div class="table-wrap">
       <div class="table-scroll">
@@ -1601,6 +1761,9 @@ function renderLiveSeason(){
       <summary>How do Victory Points work?</summary>
       <p>Each week you can earn up to 5 VPs: 3 for winning your matchup, plus 2 more for a top-3 score that week, or 1 more for a top-6 score (the top-3 bonus replaces the top-6 bonus, they don't stack). The standings table only counts VPs from weeks that have finished — the current week's VPs show live next to each matchup above and get added to the table once that week closes. Ties in VP are broken, in order, by record, then points for, then head-to-head result.</p>
     </details>
+  `;
+
+  return header + toggleRow + topSection + bottomToggleRow + bottomSection + `
     <div style="height:8px"></div>
   `;
 }
