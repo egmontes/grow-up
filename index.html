@@ -237,8 +237,9 @@
   .matchup-card .side.right{text-align:right;}
   .matchup-card .mname{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .mvp{font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;white-space:nowrap;flex:none;}
-  .matchup-card .mplayed{font-size:10px;color:var(--text-3);margin-top:2px;}
-  .matchup-card .mplayed.all-in{color:var(--accent);}
+  .matchup-card .mplayed{font-size:10px;color:var(--text-3);margin-top:2px;display:flex;align-items:center;gap:5px;}
+  .matchup-card .mplayed.all-in .ptxt{color:var(--accent);}
+  .matchup-card .side.right .mplayed{justify-content:flex-end;}
   .matchup-card .mpts{font-size:16px;font-weight:800;color:var(--text);margin-top:2px;}
   .matchup-card .mpts.leading{color:var(--accent);}
   .matchup-card .vs{font-size:10px;font-weight:700;color:var(--text-3);flex:none;}
@@ -811,12 +812,13 @@ function attachPillFade(){
   });
 }
 
-function vpBadge(vp){
-  if(!vp) return '';
+function vpBadge(vp, place){
+  const placeTxt = place ? ' · #'+place : '';
+  if(!vp) return '<span class="mvp" style="background:#3a1418;color:#ff9b9e;">0 VP'+placeTxt+'</span>';
   const t = Math.max(0, Math.min(1, (vp-1)/4)); // 1 -> 0 (dull, low-intensity), 5 -> 1 (boldest green)
   const lo = [40,58,50], hi = [21,150,70];
   const c = lo.map((v,i)=>Math.round(v+(hi[i]-v)*t));
-  return '<span class="mvp" style="background:rgb('+c.join(',')+');color:#eafff2;">'+vp+' VP</span>';
+  return '<span class="mvp" style="background:rgb('+c.join(',')+');color:#eafff2;">'+vp+' VP'+placeTxt+'</span>';
 }
 
 function tallBoyBadge(isLow){
@@ -824,10 +826,23 @@ function tallBoyBadge(isLow){
   return '<span class="mvp" style="background:#7a1f1f;color:#ffdede;">🍺 TALL BOY</span>';
 }
 
-function playedLine(m){
-  if(!m.totalStarters) return '';
-  const allIn = m.played >= m.totalStarters;
-  return '<div class="mplayed'+(allIn?' all-in':'')+'">'+m.played+' of '+m.totalStarters+' played</div>';
+// Name + VP badge line (the Tall Boy badge, if any, now sits on the played
+// line below instead — see playedLine).
+function matchupNameBlock(m, scoringStarted, nameOnRight){
+  const name = m.managers.join(' & ');
+  const vp = scoringStarted ? vpBadge(m.vp, m.place) : '';
+  const line1 = nameOnRight ? (vp+' '+name) : (name+' '+vp);
+  return '<div class="mname">'+line1+'</div>';
+}
+
+// Tall Boy badge (if any) sits to the left of the "X of Y played" text on
+// the same line, rather than crowding the name/VP line above. The played
+// count itself only makes sense for the current, still-live week.
+function playedLine(m, tallBoyHtml, showPlayedText){
+  const playedTxt = (showPlayedText && m.totalStarters) ? (m.played+' of '+m.totalStarters+' played') : '';
+  if(!tallBoyHtml && !playedTxt) return '';
+  const allIn = !!(showPlayedText && m.totalStarters && m.played >= m.totalStarters);
+  return '<div class="mplayed'+(allIn?' all-in':'')+'">'+(tallBoyHtml||'')+(playedTxt?'<span class="ptxt">'+playedTxt+'</span>':'')+'</div>';
 }
 
 // Player directory (names/positions) is a large league-wide payload, so it's
@@ -1062,6 +1077,22 @@ function weekRankBonus(weekMatchups){
   return bonus;
 }
 
+// Each team's place in the league that week by points scored (1st, 2nd,
+// ...). Ties share a place — standard competition ranking, so two teams
+// tied for 1st both show #1 and the next distinct score is #3, not #2.
+function weekPlaceMap(weekMatchups){
+  const list = (weekMatchups||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
+  const ranked = [...list].sort((x,y)=>(y.points||0)-(x.points||0));
+  const placeMap = {};
+  let place = 0, lastPoints = null;
+  ranked.forEach((m,i)=>{
+    const pts = m.points||0;
+    if(lastPoints===null || pts !== lastPoints){ place = i+1; lastPoints = pts; }
+    placeMap[m.roster_id] = place;
+  });
+  return placeMap;
+}
+
 // Builds the per-pair matchup snapshot (points, VP, tall boy, lineup with
 // per-player played/points) for one week's raw matchup data. Reused for the
 // current live week, the most recently completed week (Beers Due), and any
@@ -1079,6 +1110,7 @@ function buildWeekMatchups(weekMatchupsRaw, weekStatsForWeek){
     lowestPoints = list.reduce((min,m)=> (m.points||0) < min ? (m.points||0) : min, list[0].points||0);
   }
   const vpMap = weekVP(weekMatchupsRaw);
+  const placeMap = weekPlaceMap(weekMatchupsRaw);
   const byId = {};
   (weekMatchupsRaw||[]).forEach(m=>{ (byId[m.matchup_id] = byId[m.matchup_id]||[]).push(m); });
   return Object.values(byId).map(pair=>pair.map(m=>{
@@ -1087,6 +1119,7 @@ function buildWeekMatchups(weekMatchupsRaw, weekStatsForWeek){
       managers: SLEEPER_ROSTERS[m.roster_id] || ['Roster '+m.roster_id],
       points: m.points || 0,
       vp: vpMap[m.roster_id] || 0,
+      place: placeMap[m.roster_id] || null,
       tallBoy: lowestPoints !== null && (m.points||0) === lowestPoints,
       played: starters.filter(hasPlayedFor).length,
       totalStarters: starters.length,
@@ -1747,7 +1780,7 @@ function renderLiveSeason(){
   const matchupCards = displayedMatchups.map((pair, idx)=>{
     if(pair.length<2){
       const a = pair[0];
-      return `<div class="matchup-card"><div class="side"><div class="mname">${a.managers.join(' & ')} ${scoringStarted?vpBadge(a.vp):''}${scoringStarted?tallBoyBadge(a.tallBoy):''}</div>${isCurrentWeek?playedLine(a):''}<div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
+      return `<div class="matchup-card"><div class="side">${matchupNameBlock(a,scoringStarted,false)}${playedLine(a, scoringStarted?tallBoyBadge(a.tallBoy):'', isCurrentWeek)}<div class="mpts">${fmtPts(a.points)}</div></div><div class="vs">BYE</div></div>`;
     }
     const [a,b] = pair;
     const rivalry = isRivalryPair(a.managers, b.managers);
@@ -1755,9 +1788,9 @@ function renderLiveSeason(){
     const aLead = a.points>b.points, bLead = b.points>a.points;
     return `<div class="matchup-card clickable${rivalry?' rivalry':''}" data-matchup-idx="${idx}">
       ${rivalryBanner}
-      <div class="side"><div class="mname">${a.managers.join(' & ')} ${scoringStarted?vpBadge(a.vp):''}${scoringStarted?tallBoyBadge(a.tallBoy):''}</div>${isCurrentWeek?playedLine(a):''}<div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
+      <div class="side">${matchupNameBlock(a,scoringStarted,false)}${playedLine(a, scoringStarted?tallBoyBadge(a.tallBoy):'', isCurrentWeek)}<div class="mpts ${aLead?'leading':''}">${fmtPts(a.points)}</div></div>
       <div class="vs">VS</div>
-      <div class="side right"><div class="mname">${scoringStarted?tallBoyBadge(b.tallBoy):''}${scoringStarted?vpBadge(b.vp):''} ${b.managers.join(' & ')}</div>${isCurrentWeek?playedLine(b):''}<div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
+      <div class="side right">${matchupNameBlock(b,scoringStarted,true)}${playedLine(b, scoringStarted?tallBoyBadge(b.tallBoy):'', isCurrentWeek)}<div class="mpts ${bLead?'leading':''}">${fmtPts(b.points)}</div></div>
     </div>`;
   }).join('');
 
