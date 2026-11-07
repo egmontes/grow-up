@@ -157,6 +157,37 @@
   .standings-table thead th:first-child, .standings-table thead th:nth-child(2){
     z-index:2;background:var(--surface-2);
   }
+
+  /* Official / Live standings switch */
+  .live-switch{
+    display:inline-flex;align-items:center;gap:6px;background:none;border:0;padding:2px 0;cursor:pointer;
+    font-size:11px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:var(--text-3);
+    -webkit-tap-highlight-color:transparent;
+  }
+  .live-switch .ls-track{
+    position:relative;width:30px;height:17px;border-radius:9px;background:var(--surface-3);
+    border:1px solid var(--border);transition:background .25s ease,border-color .25s ease;
+  }
+  .live-switch .ls-knob{
+    position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--text-3);
+    transition:transform .25s cubic-bezier(.3,1.4,.5,1),background .25s ease;
+  }
+  .live-switch.on{color:#ff5a5f;}
+  .live-switch.on .ls-track{background:#3a1418;border-color:#5a2026;}
+  .live-switch.on .ls-knob{transform:translateX(13px);background:#ff5a5f;animation:livepulse 1.4s ease-in-out infinite;}
+
+  .st-move{font-size:9.5px;font-weight:800;margin-left:5px;}
+  .st-move.up{color:var(--win);}
+  .st-move.down{color:var(--loss);}
+  .vp-live{font-size:9.5px;font-weight:700;color:var(--text-3);margin-left:3px;}
+  .st-move.pop, .vp-live.pop{animation:stpop .45s cubic-bezier(.3,1.5,.5,1) .35s both;}
+  @keyframes stpop{0%{opacity:0;transform:scale(.4);display:inline-block;}100%{opacity:1;transform:scale(1);}}
+  .st-move, .vp-live{display:inline-block;}
+  .standings-table tbody tr{will-change:transform;}
+  .standings-table tr.moved-up td{animation:rowflashUp 1.4s ease-out;}
+  .standings-table tr.moved-down td{animation:rowflashDown 1.4s ease-out;}
+  @keyframes rowflashUp{0%{background-color:#163a26;}100%{background-color:var(--surface);}}
+  @keyframes rowflashDown{0%{background-color:#3a1a1c;}100%{background-color:var(--surface);}}
   .num-cell{color:var(--text-2);font-weight:500;}
   .win-txt{color:var(--win);}
   .loss-txt{color:var(--loss);}
@@ -425,6 +456,7 @@ let weekStatsLoading = new Set();
 let renderedMatchups = []; // the matchup pairs currently on screen (may be a past week), for the drawer click handler
 let standingsSort = { key:'vp', dir:'desc' };
 let liveBottomView = 'standings'; // 'standings' | 'badges'
+let standingsLive = false; // standings table: official (closed weeks) vs live (incl. current week's VP)
 
 const viewportEl = document.getElementById('viewport');
 const trackEl = document.getElementById('track');
@@ -473,6 +505,7 @@ function paintPanels(){
   attachWeekSelect();
   attachStandingsSort();
   attachLiveBottomToggle();
+  attachStandingsLiveToggle();
   setActiveNav(curPage);
   if(curPage==='managers' && lastManagers.length){
     const detail = panelCur.querySelector('#manager-detail');
@@ -530,6 +563,7 @@ function handleHashChange(){
     attachWeekSelect();
     attachStandingsSort();
     attachLiveBottomToggle();
+    attachStandingsLiveToggle();
     if(curPage==='managers' && lastManagers.length){
       const detail = panelCur.querySelector('#manager-detail');
       if(detail && detail.scrollIntoView){
@@ -1599,6 +1633,7 @@ function refreshLiveIfVisible(){
     attachWeekSelect();
     attachStandingsSort();
     attachLiveBottomToggle();
+    attachStandingsLiveToggle();
   }
 }
 
@@ -1649,6 +1684,51 @@ function attachLiveBottomToggle(){
       if(v===liveBottomView) return;
       liveBottomView = v;
       refreshLiveIfVisible();
+    });
+  });
+}
+
+// Official <-> Live standings switch. Uses a FLIP animation: snapshot each
+// row's position, re-render, then slide every row from its old spot to its
+// new one, flashing green/red for teams that climbed/fell.
+function attachStandingsLiveToggle(){
+  const btn = document.getElementById('standings-live-toggle');
+  if(!btn) return;
+  btn.addEventListener('click', ()=>{
+    const before = {};
+    document.querySelectorAll('#panel-cur .standings-table tbody tr[data-rid]').forEach(tr=>{
+      before[tr.dataset.rid] = { top: tr.getBoundingClientRect().top, idx: tr.sectionRowIndex };
+    });
+    const scrollEl = document.querySelector('#panel-cur .standings-table')?.closest('.table-scroll');
+    const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+    standingsLive = !standingsLive;
+    refreshLiveIfVisible();
+    const newScrollEl = document.querySelector('#panel-cur .standings-table')?.closest('.table-scroll');
+    if(newScrollEl) newScrollEl.scrollLeft = scrollLeft;
+    animateStandingsMove(before);
+  });
+}
+function animateStandingsMove(before){
+  const rows = [...document.querySelectorAll('#panel-cur .standings-table tbody tr[data-rid]')];
+  const moved = [];
+  rows.forEach(tr=>{
+    const prev = before[tr.dataset.rid];
+    if(!prev) return;
+    const dy = prev.top - tr.getBoundingClientRect().top;
+    if(Math.abs(dy) < 1) return;
+    tr.style.transition = 'none';
+    tr.style.transform = 'translateY('+dy+'px)';
+    moved.push({ tr, up: tr.sectionRowIndex < prev.idx });
+  });
+  document.querySelectorAll('#panel-cur .vp-live, #panel-cur .st-move').forEach(el=>el.classList.add('pop'));
+  if(!moved.length) return;
+  void document.body.offsetHeight; // commit the starting positions before animating
+  requestAnimationFrame(()=>{
+    moved.forEach(({tr, up}, i)=>{
+      tr.classList.add(up ? 'moved-up' : 'moved-down');
+      tr.style.transition = 'transform .6s cubic-bezier(.22,.9,.25,1) '+(i*25)+'ms';
+      tr.style.transform = '';
+      tr.addEventListener('transitionend', ()=>{ tr.style.transition = ''; }, {once:true});
     });
   });
 }
@@ -1846,13 +1926,41 @@ function renderLiveSeason(){
   // loadLiveData) — enrichedRows preserves that order for the Badges tab,
   // while standingsRows gets re-sorted per the table's own column sort.
   const enrichedRows = live.standings.map(row=>({ ...row, oz: ozTotals[row.managers.join(' & ')] || 0 }));
-  const standingsRows = sortStandingsRows(enrichedRows);
+
+  // Live standings: fold the in-progress week's VPs (and its top-3 / top-6
+  // bonus counts) into the official totals, then re-rank with the same
+  // tiebreakers. Only kicks in once someone in the live week has scored.
+  const liveRaw = (live.weeksRaw && live.weeksRaw[live.week-1]) || [];
+  const liveStarted = liveRaw.some(m=>(m.points||0)>0);
+  const liveOn = standingsLive && liveStarted;
+  let tableRows = enrichedRows;
+  if(liveOn){
+    const lvp = weekVP(liveRaw);
+    const lbonus = weekRankBonus(liveRaw);
+    tableRows = enrichedRows.map(r=>({
+      ...r,
+      liveVP: lvp[r.rosterId] || 0,
+      vp: r.vp + (lvp[r.rosterId] || 0),
+      top3: r.top3 + (lbonus[r.rosterId]==='top3' ? 1 : 0),
+      top6: r.top6 + (lbonus[r.rosterId]==='top6' ? 1 : 0),
+    }));
+    [...tableRows].sort((a,b)=>compareStandingsVP(a,b,live.h2h)).forEach((r,i)=>{ r.liveRank = i+1; });
+  }
+  const standingsRows = sortStandingsRows(tableRows);
+  const liveSwitch = `<button class="live-switch${standingsLive?' on':''}" id="standings-live-toggle" aria-pressed="${standingsLive}"><span class="ls-track"><span class="ls-knob"></span></span>Live</button>`;
+  const standingsSub = standingsLive
+    ? (liveStarted ? `incl. Week ${live.week} live VP` : `Week ${live.week} hasn't kicked off`)
+    : 'tap a column to sort';
   const rows = standingsRows.map((row,i)=>{
     const names = row.managers.map(m=>`<a href="#/managers/${encodeURIComponent(m)}" style="color:inherit">${m}</a>`).join(' <span style="color:var(--text-3)">&amp;</span> ');
-    return `<tr>
-      <td>${row.seasonRank}</td>
-      <td>${names}</td>
-      <td class="num-cell" style="color:var(--accent);font-weight:800;">${row.vp}</td>
+    const rank = liveOn ? row.liveRank : row.seasonRank;
+    const move = liveOn ? row.seasonRank - row.liveRank : 0;
+    const moveTag = move>0 ? `<span class="st-move up">▲${move}</span>` : move<0 ? `<span class="st-move down">▼${-move}</span>` : '';
+    const vpPlus = liveOn && row.liveVP ? `<span class="vp-live">+${row.liveVP}</span>` : '';
+    return `<tr data-rid="${row.rosterId}">
+      <td>${rank}</td>
+      <td>${names}${moveTag}</td>
+      <td class="num-cell" style="color:var(--accent);font-weight:800;">${row.vp}${vpPlus}</td>
       <td class="${row.wins>=row.losses?'win-txt':'loss-txt'}">${row.wins}-${row.losses}${row.ties?'-'+row.ties:''}</td>
       <td class="num-cell">${row.top3}</td>
       <td class="num-cell">${row.top6}</td>
@@ -1885,7 +1993,7 @@ function renderLiveSeason(){
     ? renderBadges(enrichedRows)
     : `
     ${cutoffTiles}
-    <div class="section-title">Standings <span style="font-weight:500;text-transform:none;color:var(--text-3)">tap a column to sort</span></div>
+    <div class="section-title"><span>Standings <span style="font-weight:500;text-transform:none;color:var(--text-3)">${standingsSub}</span></span>${liveSwitch}</div>
     <div class="table-wrap">
       <div class="table-scroll">
         <table class="standings-table">
