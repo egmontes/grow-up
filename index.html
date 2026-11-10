@@ -189,6 +189,12 @@
     padding:10px 12px;
   }
   .badge .blbl{font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;}
+  .name-skel{
+    display:inline-block;width:78px;height:9px;border-radius:5px;vertical-align:middle;
+    background:linear-gradient(90deg,var(--surface-2) 0%,var(--surface-3) 50%,var(--surface-2) 100%);
+    background-size:200% 100%;animation:nameskel 1.1s ease-in-out infinite;
+  }
+  @keyframes nameskel{0%{background-position:100% 0;}100%{background-position:-100% 0;}}
   .cut-ico{width:12px;height:12px;vertical-align:-2px;margin-right:5px;color:var(--accent);}
   .badge .bval{font-size:14px;font-weight:800;margin-top:3px;}
   .rank-tag{font-size:9.5px;font-weight:700;color:var(--text-3);margin-left:3px;}
@@ -973,28 +979,77 @@ function playedLine(m, tallBoyHtml, showPlayedText){
 // Player directory (names/positions) is a large league-wide payload, so it's
 // only fetched the first time someone opens a matchup drawer, not on load.
 const LINEUP_SLOTS = ['QB','RB','RB','WR','WR','TE','FLEX','K','DEF'];
-let PLAYERS = null;
+// To avoid flashing raw player IDs while that 5MB download is in flight, a
+// slim name/team cache of just this league's players is kept on the device
+// (refreshed daily, per Sleeper's guidance) and used instantly on load.
+const PLAYER_CACHE_KEY = 'growup-players-v1';
+const PLAYER_CACHE_TTL = 24*60*60*1000;
+function loadPlayerCache(){
+  try{
+    const c = JSON.parse(localStorage.getItem(PLAYER_CACHE_KEY) || 'null');
+    if(c && c.map && (Date.now() - c.ts) < PLAYER_CACHE_TTL) return c.map;
+  }catch(e){}
+  return null;
+}
+function leaguePlayerIds(){
+  const ids = new Set();
+  (live.weeksRaw||[]).forEach(wk=>(wk||[]).forEach(m=>{
+    (m.players||[]).forEach(pid=>ids.add(pid));
+    (m.starters||[]).forEach(pid=>{ if(pid && pid!=='0') ids.add(pid); });
+  }));
+  return ids;
+}
+function savePlayerCache(){
+  if(!PLAYERS_FULL || !live.weeksRaw) return;
+  const map = {};
+  leaguePlayerIds().forEach(pid=>{
+    const p = PLAYERS[pid];
+    if(p) map[pid] = { full_name: p.full_name || ((p.first_name||'')+' '+(p.last_name||'')).trim(), team: p.team || null, position: p.position || null };
+  });
+  try{ localStorage.setItem(PLAYER_CACHE_KEY, JSON.stringify({ ts: Date.now(), map })); }catch(e){}
+}
+let PLAYERS = loadPlayerCache(); // slim cached map (or null) until the full directory arrives
+let PLAYERS_FULL = false;
 let playersFetchPromise = null;
-function fetchPlayers(){
-  if(PLAYERS) return Promise.resolve(PLAYERS);
+// force=true: download the full directory even if the slim cache is loaded
+// (used when the cache is missing someone, e.g. a fresh waiver pickup).
+function fetchPlayers(force){
+  if(PLAYERS_FULL || (PLAYERS && !force)) return Promise.resolve(PLAYERS);
   if(playersFetchPromise) return playersFetchPromise;
   playersFetchPromise = Promise.resolve()
     .then(()=>fetch('https://api.sleeper.app/v1/players/nfl'))
     .then(r=>r.json())
-    .then(data=>{ PLAYERS = data; onPlayersLoaded(); return data; })
-    .catch(()=>{ PLAYERS = {}; return {}; });
+    .then(data=>{ PLAYERS = data; PLAYERS_FULL = true; savePlayerCache(); onPlayersLoaded(); return data; })
+    .catch(()=>{ if(!PLAYERS) PLAYERS = {}; playersFetchPromise = null; return PLAYERS; });
   return playersFetchPromise;
+}
+// After live data loads: if the cached names don't cover everyone in the
+// league's lineups, quietly pull the full directory to fill the gaps.
+function ensurePlayerNames(){
+  if(PLAYERS_FULL) return;
+  if(!PLAYERS){ fetchPlayers(); return; }
+  for(const pid of leaguePlayerIds()){
+    if(!isTeamId(pid) && !PLAYERS[pid]){ fetchPlayers(true); return; }
+  }
 }
 function onPlayersLoaded(){
   if(live.status!=='ready' || !live.weeksRaw) return;
   const raw = live.weeksRaw[live.week-1] || [];
   live.matchups = buildWeekMatchups(raw, weekStatsCache[live.week] || {}, false);
   refreshLiveIfVisible();
+  if(drawerPair){
+    // re-point the open drawer at the rebuilt pair (live week) and refresh it
+    const body = document.getElementById('matchup-drawer-body');
+    if(body) body.innerHTML = renderDrawerContent(drawerPair);
+  }
 }
+// Shimmering placeholder shown in place of a name we don't know yet — never
+// the raw numeric player ID.
+const NAME_SKELETON = '<span class="name-skel" aria-label="Loading player"></span>';
 function playerName(pid){
   const p = PLAYERS && PLAYERS[pid];
-  if(!p) return pid;
-  return p.full_name || ((p.first_name||'')+' '+(p.last_name||'')).trim() || pid;
+  if(!p) return isTeamId(pid) ? pid : NAME_SKELETON;
+  return p.full_name || ((p.first_name||'')+' '+(p.last_name||'')).trim() || (isTeamId(pid) ? pid : NAME_SKELETON);
 }
 
 function beerBadge(l){
@@ -1004,7 +1059,7 @@ function beerBadge(l){
 
 function lineupLabel(l){
   if(l.empty) return '<span style="color:var(--text-3);font-style:italic;">Empty slot</span>';
-  const name = PLAYERS ? playerName(l.pid) : l.pid;
+  const name = playerName(l.pid);
   return name + (l.dnp ? ' <span style="color:var(--text-3);font-size:9.5px;font-weight:700;">DNP</span>' : '');
 }
 function drawerRows(pair){
@@ -1054,7 +1109,7 @@ function openMatchupDrawer(pair){
   body.innerHTML = renderDrawerContent(pair);
   overlay.classList.add('open');
   document.body.style.overflow = 'hidden';
-  if(!PLAYERS){
+  if(!PLAYERS_FULL){
     fetchPlayers().then(()=>{
       if(drawerPair === pair) body.innerHTML = renderDrawerContent(pair);
     });
@@ -1754,6 +1809,7 @@ async function loadLiveData(){
     // background; onPlayersLoaded() rebuilds the live week when it lands.
     const liveHasPending = matchups.some(pair=>pair.some(side=>side.lineup.some(l=>!l.empty && !l.played && l.points < 1)));
     if(!PLAYERS && matchups.some(pair=>pair.some(side=>side.points>0)) && liveHasPending) fetchPlayers();
+    ensurePlayerNames();
   }catch(e){
     live = { status:'error', season:null, week:null, standings:null, matchups:null, weeksRaw:null, error:(e && e.message) || String(e) };
   }
@@ -1808,8 +1864,8 @@ function attachLiveViewToggle(){
       const v = p.dataset.liveview;
       if(v===liveView) return;
       liveView = v;
-      if(liveView==='beers' && !PLAYERS){
-        fetchPlayers().then(()=>{ if(liveView==='beers') refreshLiveIfVisible(); });
+      if((liveView==='beers' || liveView==='loading') && !PLAYERS){
+        fetchPlayers().then(()=>{ if(liveView==='beers' || liveView==='loading') refreshLiveIfVisible(); });
       }
       refreshLiveIfVisible();
     });
@@ -1872,7 +1928,7 @@ function animateStandingsMove(before){
   });
 }
 
-function beerPlayerName(pid){ return PLAYERS ? playerName(pid) : pid; }
+function beerPlayerName(pid){ return playerName(pid); }
 
 // Groups the week's owed beers by manager (team) into three buckets: tall
 // boys due Thursday (lowest score), tall boys due Sunday (lost a rivalry —
