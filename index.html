@@ -1330,14 +1330,15 @@ function computeBeersDueForWeek(weekNum, allowLive){
 // in-progress week hasn't generated any beers yet.
 const OZ_TALL_BOY = 16;
 const OZ_BEER = 12;
-function seasonOzTotals(){
+function seasonOzTotals(includeLive){
   const totals = {};
   function add(managers, oz){
     const key = managers.join(' & ');
     totals[key] = (totals[key]||0) + oz;
   }
-  for(let w=1; w<live.week; w++){
-    const bd = computeBeersDueForWeek(w);
+  const lastWeek = includeLive ? live.week : live.week-1;
+  for(let w=1; w<=lastWeek; w++){
+    const bd = computeBeersDueForWeek(w, includeLive && w===live.week);
     if(!bd) continue;
     bd.tallBoys.forEach(t=>add(t.managers, OZ_TALL_BOY));
     bd.rivalryLosers.forEach(r=>add(r.managers, OZ_TALL_BOY));
@@ -1381,11 +1382,12 @@ function compareStandingsVP(a, b, h2h){
   const bWins = headToHeadWins(h2h, b.rosterId, a.rosterId);
   return bWins - aWins;
 }
-function sortStandingsRows(rows){
+function sortStandingsRows(rows, h2hOverride){
+  const h2h = h2hOverride || live.h2h;
   const col = STANDINGS_COLUMNS.find(c=>c.key===standingsSort.key);
   if(!col || !col.sortable) return rows;
   if(standingsSort.key==='vp'){
-    return [...rows].sort((a,b)=> standingsSort.dir==='asc' ? compareStandingsVP(b,a,live.h2h) : compareStandingsVP(a,b,live.h2h));
+    return [...rows].sort((a,b)=> standingsSort.dir==='asc' ? compareStandingsVP(b,a,h2h) : compareStandingsVP(a,b,h2h));
   }
   return [...rows].sort((a,b)=>{
     const av = standingsSortValue(a, standingsSort.key), bv = standingsSortValue(b, standingsSort.key);
@@ -1609,8 +1611,12 @@ async function loadLiveData(){
       Object.values(byId).forEach(pair=>{
         if(pair.length<2) return;
         const [a,b] = pair;
-        if(totals[a.roster_id]){ totals[a.roster_id].pf += (a.points||0); totals[a.roster_id].pa += (b.points||0); }
-        if(totals[b.roster_id]){ totals[b.roster_id].pf += (b.points||0); totals[b.roster_id].pa += (a.points||0); }
+        // Official PF/PA only count closed weeks, like VP — the in-progress
+        // week's points get folded in by the standings "Live" switch.
+        if(weekNum < curWeek){
+          if(totals[a.roster_id]){ totals[a.roster_id].pf += (a.points||0); totals[a.roster_id].pa += (b.points||0); }
+          if(totals[b.roster_id]){ totals[b.roster_id].pf += (b.points||0); totals[b.roster_id].pa += (a.points||0); }
+        }
 
         // Only a fully closed week's result counts toward head-to-head,
         // streaks, and single-game records — an in-progress score isn't a
@@ -2022,22 +2028,53 @@ function renderLiveSeason(){
   const liveStarted = liveRaw.some(m=>(m.points||0)>0);
   const liveOn = standingsLive && liveStarted;
   let tableRows = enrichedRows;
+  let liveH2h = live.h2h;
   if(liveOn){
     const lvp = weekVP(liveRaw);
     const lbonus = weekRankBonus(liveRaw);
-    tableRows = enrichedRows.map(r=>({
-      ...r,
-      liveVP: lvp[r.rosterId] || 0,
-      vp: r.vp + (lvp[r.rosterId] || 0),
-      top3: r.top3 + (lbonus[r.rosterId]==='top3' ? 1 : 0),
-      top6: r.top6 + (lbonus[r.rosterId]==='top6' ? 1 : 0),
-    }));
-    [...tableRows].sort((a,b)=>compareStandingsVP(a,b,live.h2h)).forEach((r,i)=>{ r.liveRank = i+1; });
+    const ozLive = seasonOzTotals(true);
+    // This week's result as it stands right now (leading = W, trailing = L,
+    // level = T), plus points for/against, keyed by roster.
+    const liveRes = {};
+    liveH2h = JSON.parse(JSON.stringify(live.h2h || {}));
+    const byId = {};
+    liveRaw.forEach(m=>{ (byId[m.matchup_id] = byId[m.matchup_id]||[]).push(m); });
+    Object.values(byId).forEach(pair=>{
+      if(pair.length<2) return;
+      const [a,b] = pair;
+      const ap = a.points||0, bp = b.points||0;
+      liveRes[a.roster_id] = { pf:ap, pa:bp, res: ap>bp?'W':ap<bp?'L':'T' };
+      liveRes[b.roster_id] = { pf:bp, pa:ap, res: bp>ap?'W':bp<ap?'L':'T' };
+      if(ap>bp) (liveH2h[a.roster_id] = liveH2h[a.roster_id]||{})[b.roster_id] = (liveH2h[a.roster_id][b.roster_id]||0) + 1;
+      else if(bp>ap) (liveH2h[b.roster_id] = liveH2h[b.roster_id]||{})[a.roster_id] = (liveH2h[b.roster_id][a.roster_id]||0) + 1;
+    });
+    tableRows = enrichedRows.map(r=>{
+      const lr = liveRes[r.rosterId];
+      // Sleeper's official record can already include this week once it's
+      // been processed — don't count the result twice if so.
+      const alreadyCounted = (r.wins + r.losses + r.ties) >= live.week;
+      const addRes = lr && !alreadyCounted ? lr.res : null;
+      return {
+        ...r,
+        liveVP: lvp[r.rosterId] || 0,
+        vp: r.vp + (lvp[r.rosterId] || 0),
+        wins: r.wins + (addRes==='W' ? 1 : 0),
+        losses: r.losses + (addRes==='L' ? 1 : 0),
+        ties: r.ties + (addRes==='T' ? 1 : 0),
+        top3: r.top3 + (lbonus[r.rosterId]==='top3' ? 1 : 0),
+        top6: r.top6 + (lbonus[r.rosterId]==='top6' ? 1 : 0),
+        oz: ozLive[r.managers.join(' & ')] || 0,
+        liveOz: (ozLive[r.managers.join(' & ')] || 0) - r.oz,
+        pf: r.pf + (lr ? lr.pf : 0),
+        pa: r.pa + (lr ? lr.pa : 0),
+      };
+    });
+    [...tableRows].sort((a,b)=>compareStandingsVP(a,b,liveH2h)).forEach((r,i)=>{ r.liveRank = i+1; });
   }
-  const standingsRows = sortStandingsRows(tableRows);
+  const standingsRows = sortStandingsRows(tableRows, liveH2h);
   const liveSwitch = `<button class="live-switch${standingsLive?' on':''}" id="standings-live-toggle" aria-pressed="${standingsLive}"><span class="ls-track"><span class="ls-knob"></span></span>Live</button>`;
   const standingsSub = standingsLive
-    ? (liveStarted ? `incl. Week ${live.week} live VP` : `Week ${live.week} hasn't kicked off`)
+    ? (liveStarted ? `incl. Week ${live.week} as it stands` : `Week ${live.week} hasn't kicked off`)
     : 'tap a column to sort';
   const rows = standingsRows.map((row,i)=>{
     const names = row.managers.map(m=>`<a href="#/managers/${encodeURIComponent(m)}" style="color:inherit">${m}</a>`).join(' <span style="color:var(--text-3)">&amp;</span> ');
@@ -2052,7 +2089,7 @@ function renderLiveSeason(){
       <td class="${row.wins>=row.losses?'win-txt':'loss-txt'}">${row.wins}-${row.losses}${row.ties?'-'+row.ties:''}</td>
       <td class="num-cell">${row.top3}</td>
       <td class="num-cell">${row.top6}</td>
-      <td class="num-cell">${row.oz}</td>
+      <td class="num-cell">${row.oz}${liveOn && row.liveOz>0 ? `<span class="vp-live">+${row.liveOz}</span>` : ''}</td>
       <td class="num-cell">${fmtPts(row.pf)}</td>
       <td class="num-cell">${fmtPts(row.pa)}</td>
     </tr>`;
