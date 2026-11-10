@@ -981,9 +981,15 @@ function fetchPlayers(){
   playersFetchPromise = Promise.resolve()
     .then(()=>fetch('https://api.sleeper.app/v1/players/nfl'))
     .then(r=>r.json())
-    .then(data=>{ PLAYERS = data; return data; })
+    .then(data=>{ PLAYERS = data; onPlayersLoaded(); return data; })
     .catch(()=>{ PLAYERS = {}; return {}; });
   return playersFetchPromise;
+}
+function onPlayersLoaded(){
+  if(live.status!=='ready' || !live.weeksRaw) return;
+  const raw = live.weeksRaw[live.week-1] || [];
+  live.matchups = buildWeekMatchups(raw, weekStatsCache[live.week] || {}, false);
+  refreshLiveIfVisible();
 }
 function playerName(pid){
   const p = PLAYERS && PLAYERS[pid];
@@ -992,10 +998,15 @@ function playerName(pid){
 }
 
 function beerBadge(l){
-  if(!l.played || l.points >= 1) return '';
+  if(!l.owesBeer) return '';
   return '<span class="mvp" style="background:#7a1f1f;color:#ffdede;">🍺</span>';
 }
 
+function lineupLabel(l){
+  if(l.empty) return '<span style="color:var(--text-3);font-style:italic;">Empty slot</span>';
+  const name = PLAYERS ? playerName(l.pid) : l.pid;
+  return name + (l.dnp ? ' <span style="color:var(--text-3);font-size:9.5px;font-weight:700;">DNP</span>' : '');
+}
 function drawerRows(pair){
   const [a,b] = pair;
   const n = Math.max(a.lineup.length, b.lineup.length);
@@ -1006,16 +1017,16 @@ function drawerRows(pair){
     html += '<div class="lineup-row">';
     html += '<div class="lineup-side">';
     if(la){
-      html += '<div class="lineup-pts'+(la.played?'':' dim')+'">'+fmtPts(la.points)+'</div>';
-      html += '<div class="lineup-name">'+(PLAYERS?playerName(la.pid):la.pid)+'</div>';
+      html += '<div class="lineup-pts'+(la.dim?' dim':'')+'">'+fmtPts(la.points)+'</div>';
+      html += '<div class="lineup-name">'+lineupLabel(la)+'</div>';
       html += beerBadge(la);
     }
     html += '</div>';
     html += '<div class="lineup-pos">'+slot+'</div>';
     html += '<div class="lineup-side right">';
     if(lb){
-      html += '<div class="lineup-pts'+(lb.played?'':' dim')+'">'+fmtPts(lb.points)+'</div>';
-      html += '<div class="lineup-name">'+(PLAYERS?playerName(lb.pid):lb.pid)+'</div>';
+      html += '<div class="lineup-pts'+(lb.dim?' dim':'')+'">'+fmtPts(lb.points)+'</div>';
+      html += '<div class="lineup-name">'+lineupLabel(lb)+'</div>';
       html += beerBadge(lb);
     }
     html += '</div>';
@@ -1225,10 +1236,27 @@ function weekPlaceMap(weekMatchups){
 // per-player played/points) for one week's raw matchup data. Reused for the
 // current live week, the most recently completed week (Beers Due), and any
 // past week picked from the week selector.
-function buildWeekMatchups(weekMatchupsRaw, weekStatsForWeek){
+//
+// Beer rule for starters: anyone who scores under 1 point owes a beer —
+// including a player who never suited up (inactive/DNP) and an empty
+// starting slot. In a closed week that's final for everyone. In the live
+// week, a starter only counts once he's played, or once his NFL team's game
+// has kicked off without him (needs the player directory for his team).
+const isTeamId = pid => /^[A-Z]{2,3}$/.test(pid||'');
+function buildWeekMatchups(weekMatchupsRaw, weekStatsForWeek, isFinal){
+  const stats = weekStatsForWeek || {};
+  // Team defenses show up in the stats feed as "TEAM_LV", not "LV".
+  function statFor(pid){ return stats[pid] || (isTeamId(pid) ? stats['TEAM_'+pid] : null); }
   function hasPlayedFor(pid){
-    const s = weekStatsForWeek[pid];
+    const s = statFor(pid);
     return !!(s && (s.gp||0) >= 1);
+  }
+  function teamGameStarted(pid){
+    if(isTeamId(pid)) return hasPlayedFor(pid);
+    const p = PLAYERS && PLAYERS[pid];
+    if(!p || !p.team) return false;
+    const t = stats['TEAM_'+p.team] || stats[p.team];
+    return !!(t && (t.gp||0) >= 1);
   }
   const list = (weekMatchupsRaw||[]).filter(m=>SLEEPER_ROSTERS[m.roster_id]);
   // If multiple rosters are tied for the lowest score, they ALL get the
@@ -1251,11 +1279,22 @@ function buildWeekMatchups(weekMatchupsRaw, weekStatsForWeek){
       tallBoy: lowestPoints !== null && (m.points||0) === lowestPoints,
       played: starters.filter(hasPlayedFor).length,
       totalStarters: starters.length,
-      lineup: starters.map(pid=>({
-        pid: pid,
-        points: (m.players_points && m.players_points[pid]) || 0,
-        played: hasPlayedFor(pid),
-      })),
+      lineup: starters.map((pid, i)=>{
+        const empty = !pid || pid === '0';
+        const points = empty ? 0 : ((m.players_points && m.players_points[pid]) || 0);
+        const played = !empty && hasPlayedFor(pid);
+        const settled = isFinal || played || (!empty && teamGameStarted(pid));
+        return {
+          pid: empty ? null : pid,
+          slot: LINEUP_SLOTS[i] || '',
+          empty,
+          points,
+          played,
+          dnp: !empty && settled && !played,
+          dim: !empty && !settled, // still waiting on this player's game
+          owesBeer: empty || (settled && points < 1),
+        };
+      }),
     };
   }));
 }
@@ -1267,7 +1306,7 @@ function getMatchupsForWeek(weekNum){
   if(!live.weeksRaw) return [];
   if(weekNum === live.week) return live.matchups;
   const raw = live.weeksRaw[weekNum-1] || [];
-  return buildWeekMatchups(raw, weekStatsCache[weekNum] || {});
+  return buildWeekMatchups(raw, weekStatsCache[weekNum] || {}, weekNum < live.week);
 }
 function effectiveWeek(){
   return live.status==='ready' ? (selectedWeek || live.week) : null;
@@ -1317,7 +1356,7 @@ function computeBeersDueForWeek(weekNum, allowLive){
   beerPairs.forEach(pair=>{
     pair.forEach(side=>{
       side.lineup.forEach(l=>{
-        if(l.played && l.points < 1) individualBeers.push({ managers: side.managers, pid: l.pid, points: l.points });
+        if(l.owesBeer) individualBeers.push({ managers: side.managers, pid: l.pid, slot: l.slot, empty: l.empty, dnp: l.dnp, points: l.points });
       });
     });
   });
@@ -1700,7 +1739,7 @@ async function loadLiveData(){
     standings.forEach((row,i)=>{ row.seasonRank = i+1; });
 
     const curWeekMatchups = weeks[weeks.length-1] || [];
-    const matchups = buildWeekMatchups(curWeekMatchups, weekStatsAll[weekStatsAll.length-1] || {});
+    const matchups = buildWeekMatchups(curWeekMatchups, weekStatsAll[weekStatsAll.length-1] || {}, false);
 
     live = { status:'ready', season: league.season, week: curWeek, standings, matchups, weeksRaw: weeks, h2h, badgeExtras: { blowout, nailbiter, highScore, lowScore, highLoss, lowWin }, cutoffs: { top3: top3Cutoffs, top6: top6Cutoffs }, error:null };
     // Every week's stats were fetched up front (see above), so seed the full
@@ -1709,6 +1748,12 @@ async function loadLiveData(){
     weekStatsAll.forEach((s,idx)=>{ weekStatsCache[idx+1] = s || {}; });
     weekStatsLoading = new Set();
     if(selectedWeek && selectedWeek > curWeek) selectedWeek = null;
+    // If a live-week starter is still sitting on under 1 point without having
+    // played, we need the player directory (for his NFL team) to tell "hasn't
+    // played yet" from "his team played without him" — fetch it in the
+    // background; onPlayersLoaded() rebuilds the live week when it lands.
+    const liveHasPending = matchups.some(pair=>pair.some(side=>side.lineup.some(l=>!l.empty && !l.played && l.points < 1)));
+    if(!PLAYERS && matchups.some(pair=>pair.some(side=>side.points>0)) && liveHasPending) fetchPlayers();
   }catch(e){
     live = { status:'error', season:null, week:null, standings:null, matchups:null, weeksRaw:null, error:(e && e.message) || String(e) };
   }
@@ -1843,7 +1888,10 @@ function groupBeersByManager(beersDue){
   }
   beersDue.tallBoys.forEach(t=> bump(t.managers, 'thursdayTallBoys', { label:'Lowest score', detail: fmtPts(t.points)+' pts', day:'Thu', tallBoy:true }));
   beersDue.rivalryLosers.forEach(r=> bump(r.managers, 'sundayTallBoys', { label:'Lost rivalry', detail: 'vs '+r.opponent.join(' & '), day:'Sun', tallBoy:true }));
-  beersDue.individualBeers.forEach(b=> bump(b.managers, 'sundayBeers', { label: beerPlayerName(b.pid), detail: fmtPts(b.points)+' pts', day:'Sun', tallBoy:false }));
+  beersDue.individualBeers.forEach(b=> bump(b.managers, 'sundayBeers', {
+    label: b.empty ? 'Empty '+b.slot+' slot' : beerPlayerName(b.pid),
+    detail: b.empty ? 'no starter' : b.dnp ? 'DNP' : fmtPts(b.points)+' pts',
+    day:'Sun', tallBoy:false }));
   return Object.values(byManager);
 }
 
